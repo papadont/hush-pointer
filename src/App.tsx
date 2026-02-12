@@ -327,7 +327,7 @@ export default function App(){
           <div style={{display:"flex",gap:8}}>{(["default","moss","warm","dusk","dark"]as ColorScheme[]).map(s=>(
             <button key={s} onClick={()=>setScheme(s)} onPointerEnter={()=>setSchemeTip(s==="dark"?"nord":s)} onPointerLeave={()=>setSchemeTip("")} aria-label={`color scheme ${s}`} style={{width:12,height:12,borderRadius:"50%",background:s==="default"?SCHEMES.default.BLUE:s==="dark"?"#3a4a63":(s==="warm"?SCHEMES[s].RED:SCHEMES[s].BLUE),boxShadow:scheme===s?"0 0 0 2px rgba(90,80,60,0.35)":"0 0.5px 1.5px rgba(90,80,60,0.12)",opacity:scheme===s?1:.65,transition:"opacity 160ms ease, box-shadow 160ms ease"}}/>
           ))}</div>
-          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.5c</span>
+          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.6</span>
         </div>
       </header>
 

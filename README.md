@@ -1,37 +1,37 @@
 # HUSH·PAINTER
 
-HUSH·PAINTER is a browser-based drawing app built with React + TypeScript + Vite.
+HUSH·PAINTER は、React + TypeScript + Vite で作ったブラウザお絵描きアプリです。
 
-## Features
+## 主な機能
 
-- Brush and eraser tools
-- Adjustable stroke size and color
-- Eraser rendering via `destination-out` on canvas
+- ブラシと消しゴムのツール切り替え
+- 線幅と色の調整
+- Canvas の `destination-out` を使った消しゴム描画
 
-## Local Development
+## ローカル開発
 
 ```bash
 npm install
 npm run dev
 ```
 
-### Available Scripts
+### 利用できるスクリプト
 
-- `npm run dev`: start local dev server
-- `npm run build`: type-check and build production assets
-- `npm run lint`: run ESLint
-- `npm run preview`: preview production build locally
+- `npm run dev`: ローカル開発サーバーを起動
+- `npm run build`: 型チェックと本番ビルドを実行
+- `npm run lint`: ESLint を実行
+- `npm run preview`: 本番ビルドをローカルで確認
 
-## Deploy Policy
+## デプロイ方針
 
-- Production deploy is handled by GitHub Actions.
-- Push to `main` to deploy to GitHub Pages.
-- Do not use local `gh-pages` manual deploy.
+- 本番デプロイは GitHub Actions で実行します。
+- `main` へ push すると GitHub Pages にデプロイされます。
+- ローカルから `gh-pages` を使った手動デプロイは行いません。
 
-Workflow file:
+ワークフローファイル:
 
 - `.github/workflows/deploy-pages.yml`
 
-## Current Version
+## 現在のバージョン
 
 - `v1.7`

@@ -9,7 +9,7 @@
       <stop offset="100%" stop-color="#e8f0fb" />
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="18" fill="url(#bg)" />
+  <circle cx="32" cy="32" r="30" fill="url(#bg)" />
   <circle cx="32" cy="32" r="19" fill="#3f5f8f" opacity="0.32" />
   <path d="M22 18c-1 0-2 .8-2 1.9v24.3c0 2 2.5 3 4 1.7l5.4-4.9a1.8 1.8 0 0 1 2.6.2l4.4 5.6c.7.9 2.1 1.1 3 .4l2.5-2a2 2 0 0 0 .4-2.8l-4.5-5.6a1.8 1.8 0 0 1 .8-2.9l6.8-2.4c2-.7 2.3-3.4.5-4.6L23.4 18.3a2.3 2.3 0 0 0-1.4-.3z" fill="url(#mark)" />
   <circle cx="46" cy="18" r="4.6" fill="#d8e7ff" opacity="0.9" />

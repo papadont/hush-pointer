@@ -308,6 +308,7 @@ export default function App(){
     setExtraMode(v=>{
       const next=!v;
       if(next){
+        setEraserMode(false);
         setRunning(false);
         setFinished(false);
         setTarget(null);

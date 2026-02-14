@@ -139,6 +139,7 @@
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
@@ -161,6 +162,15 @@ npm run firebase:login
 3. 環境変数を設定してビルド/デプロイ
 ```bash
 # .env.local (local)
+VITE_FIREBASE_API_KEY=your_firebase_web_api_key
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+VITE_FIREBASE_APP_ID=your_web_app_id
+# Optional:
+# VITE_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
+
 VITE_FIREBASE_APPCHECK_SITE_KEY=your_recaptcha_v3_site_key
 
 # 任意: ローカル開発で debug token を使う場合
@@ -168,5 +178,6 @@ VITE_FIREBASE_APPCHECK_DEBUG_TOKEN=true
 ```
 
 補足:
+- API key は公開される可能性がある前提で、Firebase Console 側の API key restrictions を必ず設定してください。
 - `VITE_FIREBASE_APPCHECK_SITE_KEY` が未設定だと、本番では App Check が無効のままです。
 - Firestore 側で App Check Enforcement を有効化すると、App Check トークンなしの書き込みを拒否できます。

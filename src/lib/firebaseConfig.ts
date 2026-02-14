@@ -3,14 +3,24 @@ import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { getAuth, signInAnonymously, type User } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
+const env = import.meta.env as Record<string, string | undefined>;
+
+function getRequiredEnv(name: string): string {
+  const value = env[name]?.trim();
+  if (!value) {
+    throw new Error(`Missing required Firebase env var: ${name}`);
+  }
+  return value;
+}
+
 const firebaseConfig = {
-  apiKey: "[REDACTED_GCP_API_KEY]",
-  authDomain: "hush-pointer.firebaseapp.com",
-  projectId: "hush-pointer",
-  storageBucket: "hush-pointer.firebasestorage.app",
-  messagingSenderId: "926418008768",
-  appId: "1:926418008768:web:a3c20d5a70cfb6a7c10b25",
-  measurementId: "G-PWDENYWTRM"
+  apiKey: getRequiredEnv("VITE_FIREBASE_API_KEY"),
+  authDomain: getRequiredEnv("VITE_FIREBASE_AUTH_DOMAIN"),
+  projectId: getRequiredEnv("VITE_FIREBASE_PROJECT_ID"),
+  storageBucket: getRequiredEnv("VITE_FIREBASE_STORAGE_BUCKET"),
+  messagingSenderId: getRequiredEnv("VITE_FIREBASE_MESSAGING_SENDER_ID"),
+  appId: getRequiredEnv("VITE_FIREBASE_APP_ID"),
+  measurementId: env.VITE_FIREBASE_MEASUREMENT_ID?.trim()
 };
 
 const app = initializeApp(firebaseConfig);

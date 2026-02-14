@@ -1,4 +1,7 @@
 import React,{useEffect,useMemo,useRef,useState}from"react";
+import { ensureAnonymousUser } from "./lib/firebaseConfig";
+import { saveScreenshot } from "./lib/firestoreService";
+import { elementToPngDataUrl } from "./lib/screenshot";
 // HUSH·POINTER v1.5b : trackball-oriented reaction training (frozen, compact build)
 
 type Color="blue"|"red";type ColorScheme="default"|"warm"|"moss"|"dusk"|"dark";type Mode="left"|"right"|"random";type BeepMode="all"|"miss"|"off";type ReactionSample={t:number;color:Color};
@@ -36,6 +39,7 @@ export default function App(){
 
   // --- bonus mode : HUSH·PAINTER ---
   const[extraMode,setExtraMode]=useState(false);
+  const finishCardRef=useRef<HTMLDivElement|null>(null);
   const painterCanvasRef=useRef<HTMLCanvasElement|null>(null);
   const painterCtxRef=useRef<CanvasRenderingContext2D|null>(null);
   const drawingRef=useRef(false);
@@ -44,6 +48,8 @@ export default function App(){
   const auraStrokeRef=useRef(false);
   const marbleSeedRef=useRef(0);
   const[eraserMode,setEraserMode]=useState(false);
+  const[savingFinish,setSavingFinish]=useState(false);
+  const[savingPainter,setSavingPainter]=useState(false);
   const[paintScore,setPaintScore]=useState(0),paintScoreRef=useRef(0);
   const[paintStrokes,setPaintStrokes]=useState(0),paintStrokesRef=useRef(0);
   const paintAreaRef=useRef(0);
@@ -63,8 +69,15 @@ export default function App(){
   const guideGridMinor=scheme==="dark"?"rgba(103,110,123,0.18)":rgba(BLUE,.08);
   const isNord=scheme==="dark";
 
-  const flashMessage=(txt:string)=>{setMessage(txt);window.clearTimeout((flashMessage as any)._t);(flashMessage as any)._t=window.setTimeout(()=>setMessage(""),1800)};
+  const flashMessage=(txt:string)=>{setMessage(txt);window.clearTimeout((flashMessage as any)._t);(flashMessage as any)._t=window.setTimeout(()=>setMessage(""),2800)};
   const playBeep=(freq:number,kind:"hit"|"miss"|"finish")=>{if(beepMode==="off")return;if(beepMode==="miss"&&kind!=="miss")return;const AudioCtx=window.AudioContext||(window as any).webkitAudioContext;if(!AudioCtx)return;const ctx=new AudioCtx(),osc=ctx.createOscillator(),g=ctx.createGain();osc.type="square";osc.frequency.value=freq;const now=ctx.currentTime;g.gain.setValueAtTime(.0001,now);g.gain.linearRampToValueAtTime(.18,now+.002);osc.connect(g);g.connect(ctx.destination);osc.start();const dur=kind==="finish"?.18:.04;g.gain.linearRampToValueAtTime(.0001,now+dur);osc.stop(now+dur+.002);osc.onended=()=>{try{ctx.close()}catch{}}};
+
+  useEffect(()=>{
+    ensureAnonymousUser().catch(error=>{
+      const reason=error instanceof Error?error.message:String(error);
+      setMessage(`auth failed: ${reason}`);
+    });
+  },[]);
 
   const ringStroke=(c:Color)=>{const base=c==="blue"?BLUE:RED;const a=scheme==="dark"?1.0:0.92;return rgba(base,a)};
   const glowBg=(c:Color)=>{const base=c==="blue"?BLUE:RED;const k=scheme==="dark"?1.45:1.0;return `radial-gradient(circle,${rgba(base,.48*k)} 0%,${rgba(base,.30*k)} 42%,${rgba(base,.16*k)} 72%,${rgba(base,0)} 100%)`};
@@ -326,6 +339,68 @@ export default function App(){
     });
   };
 
+  const saveFinishCardScreenshot=async()=>{
+    const card=finishCardRef.current;
+    if(!card||savingFinish)return;
+    setSavingFinish(true);
+    try{
+      const user=await ensureAnonymousUser();
+      if(!user?.uid) throw new Error("anonymous auth is not ready");
+      const base64=await elementToPngDataUrl(card);
+      await saveScreenshot("finish",base64,{
+        uid:user.uid,
+        score,
+        hits:hitCount,
+        miss,
+        median:medianReaction,
+        best:minReaction,
+        perfectBonus,
+        scheme,
+        mode,
+        targetSize,
+        glowMode,
+        pointerGuide
+      });
+      flashMessage("finish screenshot saved");
+    }catch(error){
+      console.error("Failed to save finish screenshot",error);
+      const reason=error instanceof Error?error.message:String(error);
+      flashMessage(`save failed: ${reason}`);
+    }finally{
+      setSavingFinish(false);
+    }
+  };
+
+  const savePainterScreenshot=async()=>{
+    const canvas=painterCanvasRef.current;
+    if(!canvas||savingPainter)return;
+    setSavingPainter(true);
+    try{
+      const user=await ensureAnonymousUser();
+      if(!user?.uid) throw new Error("anonymous auth is not ready");
+      const base64=canvas.toDataURL("image/png");
+      await saveScreenshot("painter",base64,{
+        uid:user.uid,
+        paintScore,
+        paintStrokes,
+        ink:Math.floor(paintAreaRef.current),
+        eraserMode,
+        scheme,
+        mode,
+        targetSize,
+        glowMode,
+        pointerGuide
+      });
+      flashMessage("painter screenshot saved");
+    }catch(error){
+      console.error("Failed to save painter screenshot",error);
+      const reason=error instanceof Error?error.message:String(error);
+      flashMessage(`save failed: ${reason}`);
+    }finally{
+      setSavingPainter(false);
+    }
+  };
+
   return(
     <div className="hp-app min-h-screen w-full flex flex-col items-center p-4 text-xs" style={{...({["--hp-appTop" as any]:theme.appTop,["--hp-appBottom" as any]:theme.appBottom,["--hp-area" as any]:theme.area,["--hp-panel" as any]:theme.panel,["--hp-msg" as any]:theme.msg,["--hp-finish" as any]:theme.finish,["--hp-finishSolid" as any]:theme.area,["--hp-card" as any]:theme.card,["--hp-ink" as any]:theme.ink,["--hp-inkSoft" as any]:theme.inkSoft,["--hp-border" as any]:theme.border,["--hp-shadow" as any]:theme.shadow}as any)}}>
       <style>{`
@@ -379,13 +454,17 @@ export default function App(){
           <div style={{display:"flex",gap:8}}>{(["default","moss","warm","dusk","dark"]as ColorScheme[]).map(s=>(
             <button key={s} onClick={()=>setScheme(s)} onPointerEnter={()=>setSchemeTip(s==="dark"?"nord":s)} onPointerLeave={()=>setSchemeTip("")} aria-label={`color scheme ${s}`} style={{width:12,height:12,borderRadius:"50%",background:s==="default"?SCHEMES.default.BLUE:s==="dark"?"#43566f":(s==="warm"?SCHEMES[s].RED:SCHEMES[s].BLUE),boxShadow:scheme===s?(isNord?"0 0 0 2px rgba(206,214,224,0.56), 0 0 0 4px rgba(129,161,193,0.24)":"0 0 0 2px rgba(90,80,60,0.35)"):(isNord?"0 0 0 1px rgba(206,214,224,0.20), 0 0.75px 2px rgba(15,23,42,0.38)":"0 0.5px 1.5px rgba(90,80,60,0.12)"),opacity:scheme===s?1:(isNord?0.74:0.65),transition:"opacity 160ms ease, box-shadow 160ms ease"}}/>
           ))}</div>
-          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.8.0</span>
+          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.8.1</span>
         </div>
       </header>
 
       <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-4 gap-2 mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
         <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]`}><div><div className="opacity-70">timeleft</div><div className="text-lg font-bold">{timeText}</div></div>
-          <button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:extraMode?RED:BLUE,boxShadow:theme.shadow}} onClick={()=>{extraMode?clearPainter():startGame()}} disabled={running&&(!extraMode)}> {extraMode?"CLEAR":"START"} </button>
+          <div className="flex items-center gap-2">
+            {extraMode&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={savePainterScreenshot} disabled={savingPainter}>{savingPainter?"SAVING":"SAVE"}</button>}
+            {!extraMode&&finished&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={saveFinishCardScreenshot} disabled={savingFinish}>{savingFinish?"SAVING":"SAVE"}</button>}
+            <button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:extraMode?RED:BLUE,boxShadow:theme.shadow}} onClick={()=>{extraMode?clearPainter():startGame()}} disabled={running&&(!extraMode)}> {extraMode?"CLEAR":"START"} </button>
+          </div>
         </div>
 
         <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]`}><div><div className="opacity-70">score</div><div className="text-lg font-bold">{extraMode?paintScore:score}</div></div>
@@ -434,7 +513,7 @@ export default function App(){
         </div>
       </div>
 
-      <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>{extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / top-right eraser icon or Shift to toggle` : (schemeTip?`scheme : ${schemeTip}`:(message||""))}</div>
+      <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>{message||(extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / top-right eraser icon or Shift to toggle` : (schemeTip?`scheme : ${schemeTip}`:""))}</div>
 
       <div ref={areaRef} className="relative w-full flex-1 hp-area rounded-2xl overflow-hidden select-none" style={{width:"100vw",cursor:"crosshair",touchAction:"none"}} onDoubleClick={onAreaDoubleClick} onMouseDown={onAreaMouseDown} onContextMenu={e=>e.preventDefault()}>
         {pointerGuide&&(
@@ -461,7 +540,7 @@ export default function App(){
 
         {finished && !extraMode && (
           <div className="absolute inset-0 grid place-items-center" style={{zIndex:12,transform:"translateY(-18px)",color:theme.inkSoft}}>
-            <div className="text-center w-[min(560px,94vw)] rounded-3xl px-5 py-4 hp-finish" style={{transform:"scale(0.87)",transformOrigin:"center"}}>
+            <div ref={finishCardRef} className="text-center w-[min(560px,94vw)] rounded-3xl px-5 py-4 hp-finish" style={{transform:"scale(0.87)",transformOrigin:"center"}}>
               <div className="mb-2">
                 <div className="h-2" />
                 <div className="text-[14px] font-semibold tracking-[0.18em] opacity-70 mb-1">HUSH·POINTER</div>

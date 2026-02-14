@@ -78,8 +78,10 @@ export default function App(){
   const painterCtxRef=useRef<CanvasRenderingContext2D|null>(null);
   const drawingRef=useRef(false);
   const erasingStrokeRef=useRef(false);
+  const strokeStartPtRef=useRef<{x:number;y:number}|null>(null);
   const lastPtRef=useRef<{x:number;y:number}|null>(null);
   const tailDirRef=useRef<{x:number;y:number}|null>(null);
+  const strokeSegmentsRef=useRef<Array<{dx:number;dy:number;len:number}>>([]);
   const tailSpeedRef=useRef(0); // css px / ms
   const lastMoveTsRef=useRef<number|null>(null);
   const auraStrokeRef=useRef(false);
@@ -87,6 +89,8 @@ export default function App(){
   const[eraserMode,setEraserMode]=useState(false);
   const[savingFinish,setSavingFinish]=useState(false);
   const[savingPainter,setSavingPainter]=useState(false);
+  const[finishScreenshotSaved,setFinishScreenshotSaved]=useState(false);
+  const[lastSavedPainterStrokes,setLastSavedPainterStrokes]=useState<number|null>(null);
   const[userUid,setUserUid]=useState("");
   const[screenshotList,setScreenshotList]=useState<ScreenshotRecord[]>([]);
   const[screenshotLoading,setScreenshotLoading]=useState(false);
@@ -122,7 +126,18 @@ export default function App(){
   const histMax=useMemo(()=>{if(!hist.blue.length)return 0;let m=0;for(let i=0;i<hist.bins;i++)m=Math.max(m,(hist.blue[i]??0)+(hist.red[i]??0));return m},[hist]);
   const screenshotKindForMode=extraMode?"painter":"finish";
   const visibleScreenshotList=useMemo(
-    ()=>screenshotList.filter(item=>item.kind===screenshotKindForMode),
+    ()=>{
+      const filtered=screenshotList.filter(item=>item.kind===screenshotKindForMode);
+      if(screenshotKindForMode!=="finish")return filtered;
+      return [...filtered].sort((a,b)=>{
+        const scoreDiff=(b.score??Number.NEGATIVE_INFINITY)-(a.score??Number.NEGATIVE_INFINITY);
+        if(scoreDiff!==0)return scoreDiff;
+        const timeA=a.timestamp?.getTime?.()??0;
+        const timeB=b.timestamp?.getTime?.()??0;
+        if(timeB!==timeA)return timeB-timeA;
+        return a.id.localeCompare(b.id);
+      });
+    },
     [screenshotList,screenshotKindForMode]
   );
   const selectedScreenshotIndex=useMemo(
@@ -136,6 +151,7 @@ export default function App(){
   );
   const allVisibleSelected=visibleScreenshotList.length>0&&selectedVisibleScreenshots.length===visibleScreenshotList.length;
   const timeText=useMemo(()=>`${Math.ceil(timeLeft).toString().padStart(2,"0")}s`,[timeLeft]);
+  const painterScreenshotSaved=lastSavedPainterStrokes!=null;
   const glowVars:React.CSSProperties&{"--glowBase"?:number}={"--glowBase":hoveringTarget?1.05:.82};
   const guideGridMajor=scheme==="dark"?"rgba(122,130,144,0.30)":rgba(BLUE,.16);
   const guideGridMinor=scheme==="dark"?"rgba(103,110,123,0.18)":rgba(BLUE,.08);
@@ -486,6 +502,10 @@ export default function App(){
   useEffect(()=>{
     setSelectedScreenshotIds([]);
   },[screenshotKindForMode]);
+  useEffect(()=>{
+    if(lastSavedPainterStrokes==null)return;
+    if(paintStrokes!==lastSavedPainterStrokes)setLastSavedPainterStrokes(null);
+  },[paintStrokes,lastSavedPainterStrokes]);
 
   const ringStroke=(c:Color)=>{const base=c==="blue"?BLUE:RED;const a=scheme==="dark"?1.0:0.92;return rgba(base,a)};
   const glowBg=(c:Color)=>{const base=c==="blue"?BLUE:RED;const k=scheme==="dark"?1.45:1.0;return `radial-gradient(circle,${rgba(base,.48*k)} 0%,${rgba(base,.30*k)} 42%,${rgba(base,.16*k)} 72%,${rgba(base,0)} 100%)`};
@@ -494,7 +514,7 @@ export default function App(){
   const spawnTarget=()=>{setHoveringTarget(false);hoveringTargetRef.current=false;const area=areaRef.current;if(!area)return;const rect=area.getBoundingClientRect(),w=rect.width,h=rect.height,size=Math.max(2,Math.min(targetSize,Math.min(w,h))),x=Math.random()*Math.max(0,w-size),y=Math.random()*Math.max(0,h-size);
     const color:Color=mode==="left"?"blue":mode==="right"?"red":Math.random()<.5?"blue":"red";targetSpawnedAt.current=performance.now();setTarget({x,y,color})};
 
-  const startGame=()=>{setShowScreenshotList(false);setComboFlash(false);setHitCount(0);hitRef.current=0;setScore(0);scoreRef.current=0;setMiss(0);missRef.current=0;setStreak(0);setTimeLeft(DURATION);setRunning(true);setFinished(false);setMessage("");setPerfectBonus(0);perfectBonusRef.current=0;setShowPerfectBonus(false);setReactionSamples([]);ignoredFirstReaction.current=false;spawnTarget()};
+  const startGame=()=>{setShowScreenshotList(false);setComboFlash(false);setHitCount(0);hitRef.current=0;setScore(0);scoreRef.current=0;setMiss(0);missRef.current=0;setStreak(0);setTimeLeft(DURATION);setRunning(true);setFinished(false);setMessage("");setPerfectBonus(0);perfectBonusRef.current=0;setShowPerfectBonus(false);setReactionSamples([]);setFinishScreenshotSaved(false);ignoredFirstReaction.current=false;spawnTarget()};
 
   const endGame=()=>{const missNow=missRef.current,hitNow=hitRef.current,scoreNow=scoreRef.current;
     if(missNow===0&&hitNow>0){const rate=Math.min(.6,.3+hitNow*.01),bonus=Math.max(50,Math.floor(scoreNow*rate));setPerfectBonus(bonus);perfectBonusRef.current=bonus;setShowPerfectBonus(false);setTimeout(()=>setShowPerfectBonus(true),220);
@@ -639,6 +659,31 @@ export default function App(){
     }
   };
 
+  const painterTailDirectionFromRecentPath=()=>{
+    const segments=strokeSegmentsRef.current;
+    if(!segments.length)return tailDirRef.current;
+    let total=0;
+    for(const seg of segments) total+=seg.len;
+    if(total<=0.0001)return tailDirRef.current;
+    const windowLen=Math.max(painterLineWidth*2.4,total*0.35);
+    let used=0;
+    let accX=0,accY=0;
+    for(let i=segments.length-1;i>=0&&used<windowLen;i--){
+      const seg=segments[i];
+      const remain=windowLen-used;
+      const take=Math.min(seg.len,remain);
+      const ratio=take/seg.len;
+      const t=1-used/windowLen; // near tail -> larger weight
+      const w=Math.max(0.2,t*t);
+      accX+=seg.dx*ratio*w;
+      accY+=seg.dy*ratio*w;
+      used+=take;
+    }
+    const norm=Math.hypot(accX,accY);
+    if(norm<=0.0001)return tailDirRef.current;
+    return{x:accX/norm,y:accY/norm};
+  };
+
   const toggleEraserMode=()=>{
     setEraserMode(v=>{
       const next=!v;
@@ -677,8 +722,10 @@ export default function App(){
 
     const r=canvas.getBoundingClientRect();
     const x=e.clientX-r.left,y=e.clientY-r.top;
+    strokeStartPtRef.current={x,y};
     lastPtRef.current={x,y};
     tailDirRef.current=null;
+    strokeSegmentsRef.current=[];
     tailSpeedRef.current=0;
     lastMoveTsRef.current=e.timeStamp;
 
@@ -711,7 +758,10 @@ export default function App(){
     if(!last){lastPtRef.current={x,y};lastMoveTsRef.current=e.timeStamp;return;}
 
     const dx=x-last.x,dy=y-last.y;const len=Math.hypot(dx,dy);
-    if(len>0.0001) tailDirRef.current={x:dx/len,y:dy/len};
+    if(len>0.0001){
+      tailDirRef.current={x:dx/len,y:dy/len};
+      strokeSegmentsRef.current.push({dx,dy,len});
+    }
     const prevTs=lastMoveTsRef.current;
     const dt=prevTs==null?0:Math.max(0,e.timeStamp-prevTs);
     if(dt>0){
@@ -740,25 +790,50 @@ export default function App(){
     painterAddArea(len,erasingStrokeRef.current?painterEraserLineWidth:painterLineWidth);
   };
 
-  const endPainterStroke=()=>{
+  const endPainterStroke=(ev?:React.PointerEvent)=>{
     if(!extraMode)return;
     const ctx=ensurePainterCtx();
     const wasErasing=erasingStrokeRef.current;
+    const start=strokeStartPtRef.current;
     const last=lastPtRef.current;
-    const dir=tailDirRef.current;
-    if(ctx&&!wasErasing&&last&&dir){
+    const dir=painterTailDirectionFromRecentPath();
+    const endGap=(start&&last)?Math.hypot(last.x-start.x,last.y-start.y):Infinity;
+    let totalLen=0;
+    for(const seg of strokeSegmentsRef.current) totalLen+=seg.len;
+    const endTs=typeof ev?.timeStamp==="number"?ev.timeStamp:performance.now();
+    const idleMs=lastMoveTsRef.current==null?0:Math.max(0,endTs-lastMoveTsRef.current);
+    const stoppedAtEnd=idleMs>=65;
+    const closesToStart=endGap<=Math.max(10,painterLineWidth*3.2);
+    const almostLoop=totalLen>0&&endGap/totalLen<0.12;
+    if(ctx&&!wasErasing&&!closesToStart&&!almostLoop&&last&&dir){
       const speed=tailSpeedRef.current;
       const speedNRaw=Math.min(1,Math.max(0,(speed-0.08)/0.9));
       const speedN=Math.sqrt(speedNRaw); // emphasize slow-speed range
-      const step=Math.max(1.05,painterLineWidth*(0.28+0.26*speedN));
-      const segments=Math.round(9+speedN*8); // keep slow strokes long too
+      const taperGateRaw=Math.min(1,Math.max(0,(speed-0.16)/0.55));
+      let taperGate=Math.pow(taperGateRaw,1.25);
+      if(!stoppedAtEnd)taperGate=Math.max(0.62,taperGate); // keep taper alive while moving
+      if(stoppedAtEnd&&taperGate<0.06){
+        drawingRef.current=false;
+        erasingStrokeRef.current=false;
+        strokeStartPtRef.current=null;
+        lastPtRef.current=null;
+        tailDirRef.current=null;
+        strokeSegmentsRef.current=[];
+        tailSpeedRef.current=0;
+        lastMoveTsRef.current=null;
+        if(ctx){ctx.beginPath();ctx.shadowBlur=0;ctx.shadowColor="transparent";ctx.globalCompositeOperation="source-over";}
+        return;
+      }
+      const step=Math.max(0.55,painterLineWidth*(0.10+0.24*speedN))*(0.65+0.55*taperGate);
+      const segments=Math.max(3,Math.round((5+speedN*7)*(0.6+0.9*taperGate)));
       let px=last.x,py=last.y;
       for(let i=0;i<segments;i++){
         const p=(i+1)/segments;
-        const scale=0.03+(1.0-0.03)*Math.pow(1-p,1.55);
+        const minScale=(1/3)+(1-taperGate)*0.18; // slower -> thicker tail
+        const scale=minScale+(1.0-minScale)*Math.pow(1-p,1.1+0.6*taperGate);
         px+=dir.x*step;
         py+=dir.y*step;
-        ctx.lineWidth=Math.max(0.22,painterLineWidth*scale);
+        ctx.lineWidth=Math.max(painterLineWidth*minScale,painterLineWidth*scale);
         ctx.lineTo(px,py);
         ctx.stroke();
         ctx.beginPath();
@@ -767,8 +842,10 @@ export default function App(){
     }
     drawingRef.current=false;
     erasingStrokeRef.current=false;
+    strokeStartPtRef.current=null;
     lastPtRef.current=null;
     tailDirRef.current=null;
+    strokeSegmentsRef.current=[];
     tailSpeedRef.current=0;
     lastMoveTsRef.current=null;
     if(ctx){ctx.beginPath();ctx.shadowBlur=0;ctx.shadowColor="transparent";ctx.globalCompositeOperation="source-over";}
@@ -786,15 +863,19 @@ export default function App(){
 
         // reset painter refs so the first stroke after switching always binds to the new canvas
         drawingRef.current=false;
+        strokeStartPtRef.current=null;
         lastPtRef.current=null;
         tailDirRef.current=null;
+        strokeSegmentsRef.current=[];
         tailSpeedRef.current=0;
         lastMoveTsRef.current=null;
         painterCtxRef.current=null;
       }else{
         drawingRef.current=false;
+        strokeStartPtRef.current=null;
         lastPtRef.current=null;
         tailDirRef.current=null;
+        strokeSegmentsRef.current=[];
         tailSpeedRef.current=0;
         lastMoveTsRef.current=null;
       }
@@ -833,6 +914,7 @@ export default function App(){
       }else{
         invalidateScreenshotCache(user.uid,"finish");
       }
+      setFinishScreenshotSaved(true);
       flashMessage("finish screenshot saved");
     }catch(error){
       console.error("Failed to save finish screenshot",error);
@@ -846,6 +928,7 @@ export default function App(){
   const savePainterScreenshot=async()=>{
     const canvas=painterCanvasRef.current;
     if(!canvas||savingPainter)return;
+    const strokesAtSave=paintStrokesRef.current;
     setSavingPainter(true);
     try{
       const user=await ensureAnonymousUser();
@@ -883,6 +966,7 @@ export default function App(){
       }else{
         invalidateScreenshotCache(user.uid,"painter");
       }
+      setLastSavedPainterStrokes(strokesAtSave);
       flashMessage("painter screenshot saved");
     }catch(error){
       console.error("Failed to save painter screenshot",error);
@@ -953,8 +1037,8 @@ export default function App(){
       <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-4 gap-2 mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
         <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]`}><div><div className="opacity-70">timeleft</div><div className="text-lg font-bold">{timeText}</div></div>
           <div className="flex items-center gap-2">
-            {extraMode&&paintStrokes>0&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={savePainterScreenshot} disabled={savingPainter}>{savingPainter?"SAVING":"SAVE"}</button>}
-            {!extraMode&&finished&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={saveFinishCardScreenshot} disabled={savingFinish}>{savingFinish?"SAVING":"SAVE"}</button>}
+            {extraMode&&paintStrokes>0&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={savePainterScreenshot} disabled={savingPainter||painterScreenshotSaved}>{savingPainter?"SAVING":(painterScreenshotSaved?"SAVED":"SAVE")}</button>}
+            {!extraMode&&finished&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={saveFinishCardScreenshot} disabled={savingFinish||finishScreenshotSaved}>{savingFinish?"SAVING":(finishScreenshotSaved?"SAVED":"SAVE")}</button>}
             <button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:extraMode?RED:BLUE,boxShadow:theme.shadow}} onClick={()=>{extraMode?clearPainter():startGame()}} disabled={running&&(!extraMode)}> {extraMode?"CLEAR":"START"} </button>
           </div>
         </div>
@@ -1070,7 +1154,7 @@ export default function App(){
           {visibleScreenshotList.length>0&&(
             <>
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {visibleScreenshotList.map(item=>(
+                {visibleScreenshotList.map((item,index)=>(
                   <div key={item.id} className="hp-card rounded-xl p-1.5 min-w-[140px] w-[140px] shrink-0 relative group">
                     <div className="relative">
                       <label className="absolute left-0 top-0 -translate-x-[14%] -translate-y-[14%] z-[1] inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px]" style={{background:"rgba(15,23,42,0.58)",color:"#f8fafc"}}>
@@ -1089,6 +1173,20 @@ export default function App(){
                     </div>
                     <div className="mt-1 text-[11px] font-semibold">{formatShotKind(item.kind)}</div>
                     <div className="text-[10px] opacity-70">{formatDateTime(item.timestamp)}</div>
+                    {screenshotKindForMode==="finish"&&index<3&&(
+                      <div
+                        className="absolute right-3 bottom-3 z-[2] w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold"
+                        style={{
+                          background:index===0?"rgba(255,215,0,0.28)":index===1?"rgba(192,192,192,0.30)":"rgba(205,127,50,0.30)",
+                          color:index===0?"#a16207":index===1?"#475569":"#9a3412",
+                          border:index===0?"1px solid rgba(217,119,6,0.5)":index===1?"1px solid rgba(100,116,139,0.5)":"1px solid rgba(154,52,18,0.5)"
+                        }}
+                        aria-label={`rank ${index+1}`}
+                        title={index===0?"gold crown":index===1?"silver crown":"bronze crown"}
+                      >
+                        ♛
+                      </div>
+                    )}
                     <button
                       className="absolute right-0 bottom-0 translate-x-[24%] translate-y-[24%] w-5 h-5 rounded-full text-[11px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                       style={{background:"rgba(15,23,42,0.55)",color:"#f8fafc",border:"1px solid rgba(241,245,249,0.42)",pointerEvents:deletingScreenshotId===item.id?"none":"auto"}}

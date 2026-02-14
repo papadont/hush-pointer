@@ -68,6 +68,9 @@ export default function App(){
   const[showScreenshotList,setShowScreenshotList]=useState(false);
   const[selectedScreenshot,setSelectedScreenshot]=useState<ScreenshotRecord|null>(null);
   const[deletingScreenshotId,setDeletingScreenshotId]=useState("");
+  const[selectedScreenshotIds,setSelectedScreenshotIds]=useState<string[]>([]);
+  const[bulkDeletingScreenshots,setBulkDeletingScreenshots]=useState(false);
+  const[bulkDownloadingScreenshots,setBulkDownloadingScreenshots]=useState(false);
   const[modalNavVisible,setModalNavVisible]=useState(false);
   const[modalNavEdge,setModalNavEdge]=useState<""|"left"|"right">("");
   const screenshotPanelRef=useRef<HTMLDivElement|null>(null);
@@ -97,6 +100,12 @@ export default function App(){
     ()=>selectedScreenshot?visibleScreenshotList.findIndex(s=>s.id===selectedScreenshot.id):-1,
     [selectedScreenshot,visibleScreenshotList]
   );
+  const selectedScreenshotIdSet=useMemo(()=>new Set(selectedScreenshotIds),[selectedScreenshotIds]);
+  const selectedVisibleScreenshots=useMemo(
+    ()=>visibleScreenshotList.filter(item=>selectedScreenshotIdSet.has(item.id)),
+    [visibleScreenshotList,selectedScreenshotIdSet]
+  );
+  const allVisibleSelected=visibleScreenshotList.length>0&&selectedVisibleScreenshots.length===visibleScreenshotList.length;
   const timeText=useMemo(()=>`${Math.ceil(timeLeft).toString().padStart(2,"0")}s`,[timeLeft]);
   const glowVars:React.CSSProperties&{"--glowBase"?:number}={"--glowBase":hoveringTarget?1.05:.82};
   const guideGridMajor=scheme==="dark"?"rgba(122,130,144,0.30)":rgba(BLUE,.16);
@@ -251,18 +260,80 @@ export default function App(){
     }
   };
   const onDeleteScreenshot=async(item:ScreenshotRecord)=>{
-    if(deletingScreenshotId)return;
+    if(deletingScreenshotId||bulkDeletingScreenshots)return;
     setDeletingScreenshotId(item.id);
     try{
       await deleteScreenshotById(item.id);
       setScreenshotList(list=>list.filter(v=>v.id!==item.id));
       if(selectedScreenshot?.id===item.id)setSelectedScreenshot(null);
+      setSelectedScreenshotIds(ids=>ids.filter(id=>id!==item.id));
     }catch(error){
       console.error("Failed to delete screenshot",error);
       const reason=error instanceof Error?error.message:String(error);
       flashMessage(`delete failed: ${reason}`);
     }finally{
       setDeletingScreenshotId("");
+    }
+  };
+  const toggleScreenshotSelection=(id:string)=>{
+    setSelectedScreenshotIds(ids=>ids.includes(id)?ids.filter(v=>v!==id):[...ids,id]);
+  };
+  const selectAllVisibleScreenshots=()=>{
+    setSelectedScreenshotIds(visibleScreenshotList.map(item=>item.id));
+  };
+  const clearScreenshotSelection=()=>{
+    setSelectedScreenshotIds([]);
+  };
+  const sanitizeFilename=(value:string)=>value.replace(/[^a-zA-Z0-9_-]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");
+  const buildScreenshotFilename=(item:ScreenshotRecord)=>{
+    const kind=item.kind==="painter"?"paint":"finish";
+    const date=item.timestamp??new Date();
+    const yyyy=date.getFullYear().toString();
+    const mm=(date.getMonth()+1).toString().padStart(2,"0");
+    const dd=date.getDate().toString().padStart(2,"0");
+    const hh=date.getHours().toString().padStart(2,"0");
+    const mi=date.getMinutes().toString().padStart(2,"0");
+    const ss=date.getSeconds().toString().padStart(2,"0");
+    return sanitizeFilename(`${kind}-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${item.id.slice(0,6)}`)+".png";
+  };
+  const downloadDataUrl=(dataUrl:string,filename:string)=>{
+    const a=document.createElement("a");
+    a.href=dataUrl;
+    a.download=filename;
+    a.rel="noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  const onDownloadSelectedScreenshots=()=>{
+    if(selectedVisibleScreenshots.length===0||bulkDownloadingScreenshots)return;
+    setBulkDownloadingScreenshots(true);
+    try{
+      for(const item of selectedVisibleScreenshots){
+        downloadDataUrl(item.image,buildScreenshotFilename(item));
+      }
+      flashMessage(`${selectedVisibleScreenshots.length} screenshot(s) downloaded`);
+    }finally{
+      setBulkDownloadingScreenshots(false);
+    }
+  };
+  const onDeleteSelectedScreenshots=async()=>{
+    if(selectedVisibleScreenshots.length===0||bulkDeletingScreenshots||deletingScreenshotId)return;
+    if(!window.confirm(`Delete ${selectedVisibleScreenshots.length} selected screenshot(s)?`))return;
+    setBulkDeletingScreenshots(true);
+    const selectedIds=new Set(selectedVisibleScreenshots.map(item=>item.id));
+    try{
+      await Promise.all(selectedVisibleScreenshots.map(item=>deleteScreenshotById(item.id)));
+      setScreenshotList(list=>list.filter(item=>!selectedIds.has(item.id)));
+      setSelectedScreenshotIds([]);
+      if(selectedScreenshot&&selectedIds.has(selectedScreenshot.id))setSelectedScreenshot(null);
+      flashMessage(`${selectedIds.size} screenshot(s) deleted`);
+    }catch(error){
+      console.error("Failed to delete selected screenshots",error);
+      const reason=error instanceof Error?error.message:String(error);
+      flashMessage(`bulk delete failed: ${reason}`);
+    }finally{
+      setBulkDeletingScreenshots(false);
     }
   };
 
@@ -304,6 +375,12 @@ export default function App(){
       setSelectedScreenshot(null);
     }
   },[selectedScreenshot,screenshotKindForMode]);
+  useEffect(()=>{
+    setSelectedScreenshotIds(ids=>ids.filter(id=>screenshotList.some(item=>item.id===id)));
+  },[screenshotList]);
+  useEffect(()=>{
+    setSelectedScreenshotIds([]);
+  },[screenshotKindForMode]);
 
   const ringStroke=(c:Color)=>{const base=c==="blue"?BLUE:RED;const a=scheme==="dark"?1.0:0.92;return rgba(base,a)};
   const glowBg=(c:Color)=>{const base=c==="blue"?BLUE:RED;const k=scheme==="dark"?1.45:1.0;return `radial-gradient(circle,${rgba(base,.48*k)} 0%,${rgba(base,.30*k)} 42%,${rgba(base,.16*k)} 72%,${rgba(base,0)} 100%)`};
@@ -800,6 +877,32 @@ export default function App(){
               {screenshotLoading?"loading...":"refresh"}
             </button>
           </div>
+          {visibleScreenshotList.length>0&&(
+            <div className="mb-2 flex items-center gap-1.5 flex-wrap text-[11px]">
+              <button
+                className="px-2 py-1 rounded hp-input disabled:opacity-60"
+                onClick={allVisibleSelected?clearScreenshotSelection:selectAllVisibleScreenshots}
+                disabled={screenshotLoading||bulkDeletingScreenshots||bulkDownloadingScreenshots}
+              >
+                {allVisibleSelected?"clear":"select all"}
+              </button>
+              <button
+                className="px-2 py-1 rounded hp-input disabled:opacity-60"
+                onClick={onDownloadSelectedScreenshots}
+                disabled={selectedVisibleScreenshots.length===0||bulkDownloadingScreenshots||bulkDeletingScreenshots}
+              >
+                {bulkDownloadingScreenshots?"downloading...":"download selected"}
+              </button>
+              <button
+                className="px-2 py-1 rounded hp-input disabled:opacity-60"
+                onClick={()=>void onDeleteSelectedScreenshots()}
+                disabled={selectedVisibleScreenshots.length===0||bulkDeletingScreenshots||bulkDownloadingScreenshots||Boolean(deletingScreenshotId)}
+              >
+                {bulkDeletingScreenshots?"deleting...":"delete selected"}
+              </button>
+              <span className="opacity-70">selected: {selectedVisibleScreenshots.length}</span>
+            </div>
+          )}
           {screenshotError&&<div className="text-[11px] mb-2" style={{color:RED}}>load failed: {screenshotError}</div>}
           {!screenshotError&&visibleScreenshotList.length===0&&!screenshotLoading&&<div className="text-[11px] opacity-70">no screenshot yet</div>}
           {visibleScreenshotList.length>0&&(
@@ -807,6 +910,15 @@ export default function App(){
               {visibleScreenshotList.map(item=>(
                 <div key={item.id} className="hp-card rounded-xl p-1.5 min-w-[140px] w-[140px] shrink-0 relative group">
                   <div className="relative">
+                    <label className="absolute left-1.5 top-1.5 z-[1] inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px]" style={{background:"rgba(15,23,42,0.58)",color:"#f8fafc"}}>
+                      <input
+                        type="checkbox"
+                        checked={selectedScreenshotIdSet.has(item.id)}
+                        onChange={()=>toggleScreenshotSelection(item.id)}
+                        onMouseDown={(e)=>e.stopPropagation()}
+                        aria-label="select screenshot"
+                      />
+                    </label>
                     <button className="block w-full" onClick={()=>setSelectedScreenshot(item)} aria-label={`open ${item.kind} screenshot`} style={{cursor:"zoom-in"}}>
                       <img src={item.image} alt={`${item.kind} screenshot`} className="w-full h-[82px] object-contain rounded-lg border" style={{borderColor:theme.border,background:theme.area}} />
                     </button>

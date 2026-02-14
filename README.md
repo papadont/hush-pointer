@@ -158,7 +158,16 @@ npm run firebase:login
 2. Firebase Console で App Check を有効化
 - App Check > アプリ（Web）を登録
 - provider は reCAPTCHA v3 を選択
-- site key を取得
+- `VITE_FIREBASE_APPCHECK_SITE_KEY` には reCAPTCHA の **Site key**（公開鍵）を設定
+- Firebase App Check 画面の `reCAPTCHA secret key` には reCAPTCHA の **Secret key**（秘密鍵）を設定
+
+### App Check keys (reCAPTCHA v3) の取得先
+
+- 取得先: [reCAPTCHA Admin Console](https://www.google.com/recaptcha/admin)
+- `+ Create` で `reCAPTCHA v3` キーを作成（既存キーがあればそれを利用可）
+- Domains に `localhost` と `127.0.0.1`（本番運用時は公開ドメインも）を追加
+- 表示される `Site key` を `.env.local` の `VITE_FIREBASE_APPCHECK_SITE_KEY` に設定
+- 表示される `Secret key` を Firebase Console > App Check の `reCAPTCHA secret key` に設定して保存
 3. 環境変数を設定してビルド/デプロイ
 ```bash
 # .env.local (local)
@@ -181,3 +190,23 @@ VITE_FIREBASE_APPCHECK_DEBUG_TOKEN=true
 - API key は公開される可能性がある前提で、Firebase Console 側の API key restrictions を必ず設定してください。
 - `VITE_FIREBASE_APPCHECK_SITE_KEY` が未設定だと、本番では App Check が無効のままです。
 - Firestore 側で App Check Enforcement を有効化すると、App Check トークンなしの書き込みを拒否できます。
+
+## UID Migration for Existing Screenshots
+
+匿名認証の UID 変更で過去 `screenshots` が読めなくなった場合、管理者権限で `uid` を移行できます。
+
+1. dry-run（対象件数確認）
+```bash
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json \
+npm run migrate:uid -- --from OLD_UID --to NEW_UID --dry-run
+```
+
+2. 実行（実際に更新）
+```bash
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json \
+npm run migrate:uid -- --from OLD_UID --to NEW_UID --force
+```
+
+補足:
+- このスクリプトは `screenshots` コレクションの `uid` 一致ドキュメントのみ更新します。
+- 更新時に `migratedAt`（serverTimestamp）を追記します。

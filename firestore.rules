@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Client never reads screenshots directly from Firestore in this app.
+    match /screenshots/{docId} {
+      allow read: if false;
+      allow update, delete: if false;
+      allow create: if isValidScreenshotCreate();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+
+  function isValidScreenshotCreate() {
+    return isSignedIn()
+      && hasValidCommonShape()
+      && hasValidCommonValues()
+      && hasValidKindSpecific();
+  }
+
+  function isSignedIn() {
+    return request.auth != null
+      && request.resource.data.uid is string
+      && request.resource.data.uid == request.auth.uid;
+  }
+
+  function hasValidCommonShape() {
+    let base = ["uid", "kind", "image", "timestamp", "scheme", "mode", "targetSize", "glowMode", "pointerGuide"];
+    let finishOnly = ["score", "hits", "miss", "median", "best", "perfectBonus"];
+    let painterOnly = ["paintScore", "paintStrokes", "ink", "eraserMode"];
+
+    return request.resource.data.keys().hasAll(base)
+      && (
+        (request.resource.data.kind == "finish"
+          && request.resource.data.keys().hasOnly(base.concat(finishOnly)))
+        ||
+        (request.resource.data.kind == "painter"
+          && request.resource.data.keys().hasOnly(base.concat(painterOnly)))
+      );
+  }
+
+  function hasValidCommonValues() {
+    return request.resource.data.kind in ["finish", "painter"]
+      && request.resource.data.image is string
+      && request.resource.data.image.size() > 100
+      && request.resource.data.image.size() <= 1400000
+      && request.resource.data.image.matches('^data:image\\/png;base64,[A-Za-z0-9+/=]+$')
+      && request.resource.data.timestamp == request.time
+      && request.resource.data.scheme in ["default", "moss", "warm", "dusk", "dark"]
+      && request.resource.data.mode in ["left", "right", "random"]
+      && request.resource.data.targetSize is int
+      && request.resource.data.targetSize >= 2
+      && request.resource.data.targetSize <= 320
+      && request.resource.data.glowMode is bool
+      && request.resource.data.pointerGuide is bool;
+  }
+
+  function hasValidKindSpecific() {
+    return (request.resource.data.kind == "finish" && isValidFinishMetrics())
+      || (request.resource.data.kind == "painter" && isValidPainterMetrics());
+  }
+
+  function isValidFinishMetrics() {
+    return request.resource.data.score is int
+      && request.resource.data.score >= -100000
+      && request.resource.data.score <= 1000000
+      && request.resource.data.hits is int
+      && request.resource.data.hits >= 0
+      && request.resource.data.hits <= 1200
+      && request.resource.data.miss is int
+      && request.resource.data.miss >= 0
+      && request.resource.data.miss <= 1200
+      && request.resource.data.median is number
+      && request.resource.data.median >= 0
+      && request.resource.data.median <= 10000
+      && request.resource.data.best is number
+      && request.resource.data.best >= 0
+      && request.resource.data.best <= 10000
+      && request.resource.data.perfectBonus is int
+      && request.resource.data.perfectBonus >= 0
+      && request.resource.data.perfectBonus <= 100000;
+  }
+
+  function isValidPainterMetrics() {
+    return request.resource.data.paintScore is int
+      && request.resource.data.paintScore >= 0
+      && request.resource.data.paintScore <= 1000000
+      && request.resource.data.paintStrokes is int
+      && request.resource.data.paintStrokes >= 0
+      && request.resource.data.paintStrokes <= 100000
+      && request.resource.data.ink is int
+      && request.resource.data.ink >= 0
+      && request.resource.data.ink <= 100000000
+      && request.resource.data.eraserMode is bool;
+  }
+}

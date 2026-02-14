@@ -140,3 +140,33 @@
 ```bash
 npm install
 npm run dev
+```
+
+## Firebase Security Setup (App Check + Firestore Rules)
+
+公開環境で `SAVE` を安全に運用するため、以下を設定してください。
+
+1. Firestore Rules を反映する（`firestore.rules` を使用）
+```bash
+npm run deploy:rules
+```
+初回のみログインが必要:
+```bash
+npm run firebase:login
+```
+2. Firebase Console で App Check を有効化
+- App Check > アプリ（Web）を登録
+- provider は reCAPTCHA v3 を選択
+- site key を取得
+3. 環境変数を設定してビルド/デプロイ
+```bash
+# .env.local (local)
+VITE_FIREBASE_APPCHECK_SITE_KEY=your_recaptcha_v3_site_key
+
+# 任意: ローカル開発で debug token を使う場合
+VITE_FIREBASE_APPCHECK_DEBUG_TOKEN=true
+```
+
+補足:
+- `VITE_FIREBASE_APPCHECK_SITE_KEY` が未設定だと、本番では App Check が無効のままです。
+- Firestore 側で App Check Enforcement を有効化すると、App Check トークンなしの書き込みを拒否できます。

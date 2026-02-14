@@ -56,6 +56,9 @@ export default function App(){
   const drawingRef=useRef(false);
   const erasingStrokeRef=useRef(false);
   const lastPtRef=useRef<{x:number;y:number}|null>(null);
+  const tailDirRef=useRef<{x:number;y:number}|null>(null);
+  const tailSpeedRef=useRef(0); // css px / ms
+  const lastMoveTsRef=useRef<number|null>(null);
   const auraStrokeRef=useRef(false);
   const marbleSeedRef=useRef(0);
   const[eraserMode,setEraserMode]=useState(false);
@@ -573,6 +576,9 @@ export default function App(){
     const r=canvas.getBoundingClientRect();
     const x=e.clientX-r.left,y=e.clientY-r.top;
     lastPtRef.current={x,y};
+    tailDirRef.current=null;
+    tailSpeedRef.current=0;
+    lastMoveTsRef.current=e.timeStamp;
 
     setPaintStrokes(s=>{const next=s+1;paintStrokesRef.current=next;return next});
 
@@ -600,9 +606,17 @@ export default function App(){
     const r=canvas.getBoundingClientRect();
     const x=e.clientX-r.left,y=e.clientY-r.top;
     const last=lastPtRef.current;
-    if(!last){lastPtRef.current={x,y};return;}
+    if(!last){lastPtRef.current={x,y};lastMoveTsRef.current=e.timeStamp;return;}
 
     const dx=x-last.x,dy=y-last.y;const len=Math.hypot(dx,dy);
+    if(len>0.0001) tailDirRef.current={x:dx/len,y:dy/len};
+    const prevTs=lastMoveTsRef.current;
+    const dt=prevTs==null?0:Math.max(0,e.timeStamp-prevTs);
+    if(dt>0){
+      const speed=len/dt;
+      tailSpeedRef.current=tailSpeedRef.current>0?tailSpeedRef.current*0.78+speed*0.22:speed;
+    }
+    lastMoveTsRef.current=e.timeStamp;
 
     if(erasingStrokeRef.current){
       ctx.globalCompositeOperation="destination-out";
@@ -624,7 +638,39 @@ export default function App(){
     painterAddArea(len,erasingStrokeRef.current?painterEraserLineWidth:painterLineWidth);
   };
 
-  const endPainterStroke=()=>{if(!extraMode)return;drawingRef.current=false;erasingStrokeRef.current=false;lastPtRef.current=null;const ctx=ensurePainterCtx();if(ctx){ctx.beginPath();ctx.shadowBlur=0;ctx.shadowColor="transparent";ctx.globalCompositeOperation="source-over";}};
+  const endPainterStroke=()=>{
+    if(!extraMode)return;
+    const ctx=ensurePainterCtx();
+    const wasErasing=erasingStrokeRef.current;
+    const last=lastPtRef.current;
+    const dir=tailDirRef.current;
+    if(ctx&&!wasErasing&&last&&dir){
+      const speed=tailSpeedRef.current;
+      const speedNRaw=Math.min(1,Math.max(0,(speed-0.08)/0.9));
+      const speedN=Math.sqrt(speedNRaw); // emphasize slow-speed range
+      const step=Math.max(1.05,painterLineWidth*(0.28+0.26*speedN));
+      const segments=Math.round(9+speedN*8); // keep slow strokes long too
+      let px=last.x,py=last.y;
+      for(let i=0;i<segments;i++){
+        const p=(i+1)/segments;
+        const scale=0.03+(1.0-0.03)*Math.pow(1-p,1.55);
+        px+=dir.x*step;
+        py+=dir.y*step;
+        ctx.lineWidth=Math.max(0.22,painterLineWidth*scale);
+        ctx.lineTo(px,py);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px,py);
+      }
+    }
+    drawingRef.current=false;
+    erasingStrokeRef.current=false;
+    lastPtRef.current=null;
+    tailDirRef.current=null;
+    tailSpeedRef.current=0;
+    lastMoveTsRef.current=null;
+    if(ctx){ctx.beginPath();ctx.shadowBlur=0;ctx.shadowColor="transparent";ctx.globalCompositeOperation="source-over";}
+  };
 
   const toggleExtraMode=()=>{
     setExtraMode(v=>{
@@ -639,10 +685,16 @@ export default function App(){
         // reset painter refs so the first stroke after switching always binds to the new canvas
         drawingRef.current=false;
         lastPtRef.current=null;
+        tailDirRef.current=null;
+        tailSpeedRef.current=0;
+        lastMoveTsRef.current=null;
         painterCtxRef.current=null;
       }else{
         drawingRef.current=false;
         lastPtRef.current=null;
+        tailDirRef.current=null;
+        tailSpeedRef.current=0;
+        lastMoveTsRef.current=null;
       }
       return next;
     });

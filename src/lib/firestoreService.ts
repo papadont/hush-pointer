@@ -1,4 +1,4 @@
-import { addDoc, collection, getDocs, limit, query, serverTimestamp, where, type Timestamp } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDocs, limit, query, serverTimestamp, where, type Timestamp } from "firebase/firestore";
 import { db } from "./firebaseConfig";
 
 type ScreenshotKind = "finish" | "painter";
@@ -57,4 +57,8 @@ export async function listScreenshotsByUid(uid: string, maxCount = 24): Promise<
 
   rows.sort((a, b) => (b.timestamp?.getTime() ?? 0) - (a.timestamp?.getTime() ?? 0));
   return rows;
+}
+
+export async function deleteScreenshotById(id: string) {
+  await deleteDoc(doc(db, "screenshots", id));
 }

@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState}from"react";
 import { ensureAnonymousUser } from "./lib/firebaseConfig";
-import { listScreenshotsByUid, saveScreenshot, type ScreenshotRecord } from "./lib/firestoreService";
+import { deleteScreenshotById, listScreenshotsByUid, saveScreenshot, type ScreenshotRecord } from "./lib/firestoreService";
 import { elementToPngDataUrl } from "./lib/screenshot";
 // HUSH·POINTER v1.5b : trackball-oriented reaction training (frozen, compact build)
 
@@ -14,6 +14,17 @@ const THEMES:any={default:{appTop:"#fbfaf8",appBottom:"#f6f2ec",area:"#fbfaf8",p
 
 const median=(v:number[])=>{if(!v.length)return 0;const s=[...v].sort((a,b)=>a-b),m=(s.length/2)|0;return s.length%2?(s[m]??0):((s[m-1]??0)+(s[m]??0))/2};
 const rgba=(hex:string,a:number)=>{const h=hex.replace("#","").trim();if(h.length!==6)return"rgba(0,0,0,"+a+")";const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);return`rgba(${r},${g},${b},${a})`};
+const formatDateTime=(d:Date|null)=>{
+  if(!d)return"(time pending)";
+  const yyyy=d.getFullYear().toString();
+  const mm=(d.getMonth()+1).toString().padStart(2,"0");
+  const dd=d.getDate().toString().padStart(2,"0");
+  const hh=d.getHours().toString().padStart(2,"0");
+  const mi=d.getMinutes().toString().padStart(2,"0");
+  const ss=d.getSeconds().toString().padStart(2,"0");
+  return `${yyyy}/${mm}/${dd} ${hh}:${mi}:${ss}`;
+};
+const formatShotKind=(kind:"finish"|"painter")=>kind==="finish"?"Finish Card":"Paint";
 function buildHistogramByColor(bt:number[],rt:number[],bins=18){const all=[...bt,...rt];if(!all.length)return{blue:[]as number[],red:[]as number[],min:0,max:0,bins};const tMin=Math.min(...all),tMax=Math.max(...all),pad=Math.max(.02,(tMax-tMin)*.08),min=Math.max(0,tMin-pad),max=Math.max(min+.001,tMax+pad),blue=new Array(bins).fill(0),red=new Array(bins).fill(0),add=(arr:number[],t:number)=>{const p=(t-min)/(max-min),idx=Math.min(bins-1,Math.max(0,Math.floor(p*bins)));arr[idx]+=1};for(const t of bt)add(blue,t);for(const t of rt)add(red,t);return{blue,red,min,max,bins}}
 function calcHitScore(targetSizePx:number,reactionSec:number|null,areaWidthPx:number,areaHeightPx:number){
   const base=Math.max(1,Math.floor(1000/Math.max(1,targetSizePx)));
@@ -55,6 +66,15 @@ export default function App(){
   const[screenshotLoading,setScreenshotLoading]=useState(false);
   const[screenshotError,setScreenshotError]=useState("");
   const[showScreenshotList,setShowScreenshotList]=useState(false);
+  const[selectedScreenshot,setSelectedScreenshot]=useState<ScreenshotRecord|null>(null);
+  const[deletingScreenshotId,setDeletingScreenshotId]=useState("");
+  const[modalNavVisible,setModalNavVisible]=useState(false);
+  const[modalNavEdge,setModalNavEdge]=useState<""|"left"|"right">("");
+  const screenshotPanelRef=useRef<HTMLDivElement|null>(null);
+  const screenshotToggleRef=useRef<HTMLButtonElement|null>(null);
+  const modalImageRef=useRef<HTMLImageElement|null>(null);
+  const suppressPainterPointerDownRef=useRef(false);
+  const modalNavHideTimerRef=useRef<number|undefined>(undefined);
   const[paintScore,setPaintScore]=useState(0),paintScoreRef=useRef(0);
   const[paintStrokes,setPaintStrokes]=useState(0),paintStrokesRef=useRef(0);
   const paintAreaRef=useRef(0);
@@ -68,6 +88,15 @@ export default function App(){
   const redTimes=useMemo(()=>reactionSamples.filter(s=>s.color==="red").map(s=>s.t),[reactionSamples]);
   const hist=useMemo(()=>buildHistogramByColor(blueTimes,redTimes,18),[blueTimes,redTimes]);
   const histMax=useMemo(()=>{if(!hist.blue.length)return 0;let m=0;for(let i=0;i<hist.bins;i++)m=Math.max(m,(hist.blue[i]??0)+(hist.red[i]??0));return m},[hist]);
+  const screenshotKindForMode=extraMode?"painter":"finish";
+  const visibleScreenshotList=useMemo(
+    ()=>screenshotList.filter(item=>item.kind===screenshotKindForMode),
+    [screenshotList,screenshotKindForMode]
+  );
+  const selectedScreenshotIndex=useMemo(
+    ()=>selectedScreenshot?visibleScreenshotList.findIndex(s=>s.id===selectedScreenshot.id):-1,
+    [selectedScreenshot,visibleScreenshotList]
+  );
   const timeText=useMemo(()=>`${Math.ceil(timeLeft).toString().padStart(2,"0")}s`,[timeLeft]);
   const glowVars:React.CSSProperties&{"--glowBase"?:number}={"--glowBase":hoveringTarget?1.05:.82};
   const guideGridMajor=scheme==="dark"?"rgba(122,130,144,0.30)":rgba(BLUE,.16);
@@ -76,6 +105,10 @@ export default function App(){
 
   const flashMessage=(txt:string)=>{setMessage(txt);window.clearTimeout((flashMessage as any)._t);(flashMessage as any)._t=window.setTimeout(()=>setMessage(""),2800)};
   const playBeep=(freq:number,kind:"hit"|"miss"|"finish")=>{if(beepMode==="off")return;if(beepMode==="miss"&&kind!=="miss")return;const AudioCtx=window.AudioContext||(window as any).webkitAudioContext;if(!AudioCtx)return;const ctx=new AudioCtx(),osc=ctx.createOscillator(),g=ctx.createGain();osc.type="square";osc.frequency.value=freq;const now=ctx.currentTime;g.gain.setValueAtTime(.0001,now);g.gain.linearRampToValueAtTime(.18,now+.002);osc.connect(g);g.connect(ctx.destination);osc.start();const dur=kind==="finish"?.18:.04;g.gain.linearRampToValueAtTime(.0001,now+dur);osc.stop(now+dur+.002);osc.onended=()=>{try{ctx.close()}catch{}}};
+  const clearModalNavHideTimer=()=>{if(modalNavHideTimerRef.current!=null){window.clearTimeout(modalNavHideTimerRef.current);modalNavHideTimerRef.current=undefined}};
+  const hideModalNav=()=>{clearModalNavHideTimer();setModalNavVisible(false);setModalNavEdge("")};
+  const scheduleModalNavHide=()=>{clearModalNavHideTimer();modalNavHideTimerRef.current=window.setTimeout(()=>{setModalNavVisible(false);setModalNavEdge("");modalNavHideTimerRef.current=undefined},2000)};
+  const openModalScreenshotAt=(index:number)=>{const item=visibleScreenshotList[index];if(item)setSelectedScreenshot(item)};
   const getAreaBackgroundColor=()=>{
     const area=areaRef.current;
     if(!area)return theme.area;
@@ -217,6 +250,21 @@ export default function App(){
       setScreenshotLoading(false);
     }
   };
+  const onDeleteScreenshot=async(item:ScreenshotRecord)=>{
+    if(deletingScreenshotId)return;
+    setDeletingScreenshotId(item.id);
+    try{
+      await deleteScreenshotById(item.id);
+      setScreenshotList(list=>list.filter(v=>v.id!==item.id));
+      if(selectedScreenshot?.id===item.id)setSelectedScreenshot(null);
+    }catch(error){
+      console.error("Failed to delete screenshot",error);
+      const reason=error instanceof Error?error.message:String(error);
+      flashMessage(`delete failed: ${reason}`);
+    }finally{
+      setDeletingScreenshotId("");
+    }
+  };
 
   useEffect(()=>{
     (async()=>{
@@ -231,6 +279,31 @@ export default function App(){
       }
     })();
   },[]);
+
+  useEffect(()=>{
+    if(!showScreenshotList||selectedScreenshot)return;
+    const onPointerDown=(ev:PointerEvent)=>{
+      const target=ev.target as Node|null;
+      if(!target)return;
+      if(screenshotPanelRef.current?.contains(target))return;
+      if(screenshotToggleRef.current?.contains(target))return;
+      if(extraMode)suppressPainterPointerDownRef.current=true;
+      setShowScreenshotList(false);
+    };
+    document.addEventListener("pointerdown",onPointerDown,true);
+    return()=>document.removeEventListener("pointerdown",onPointerDown,true);
+  },[showScreenshotList,extraMode,selectedScreenshot]);
+
+  useEffect(()=>()=>clearModalNavHideTimer(),[]);
+
+  useEffect(()=>{
+    if(!selectedScreenshot)hideModalNav();
+  },[selectedScreenshot]);
+  useEffect(()=>{
+    if(selectedScreenshot&&selectedScreenshot.kind!==screenshotKindForMode){
+      setSelectedScreenshot(null);
+    }
+  },[selectedScreenshot,screenshotKindForMode]);
 
   const ringStroke=(c:Color)=>{const base=c==="blue"?BLUE:RED;const a=scheme==="dark"?1.0:0.92;return rgba(base,a)};
   const glowBg=(c:Color)=>{const base=c==="blue"?BLUE:RED;const k=scheme==="dark"?1.45:1.0;return `radial-gradient(circle,${rgba(base,.48*k)} 0%,${rgba(base,.30*k)} 42%,${rgba(base,.16*k)} 72%,${rgba(base,0)} 100%)`};
@@ -405,6 +478,11 @@ export default function App(){
 
   const onPainterPointerDown=(e:React.PointerEvent)=>{
     if(!extraMode)return;
+    if(suppressPainterPointerDownRef.current){
+      suppressPainterPointerDownRef.current=false;
+      e.preventDefault();
+      return;
+    }
     const canvas=painterCanvasRef.current,ctx=ensurePainterCtx();
     if(!canvas||!ctx)return;
     setShowScreenshotList(false);
@@ -577,7 +655,7 @@ export default function App(){
   };
 
   return(
-    <div className="hp-app min-h-screen w-full flex flex-col items-center p-4 text-xs" style={{...({["--hp-appTop" as any]:theme.appTop,["--hp-appBottom" as any]:theme.appBottom,["--hp-area" as any]:theme.area,["--hp-panel" as any]:theme.panel,["--hp-msg" as any]:theme.msg,["--hp-finish" as any]:theme.finish,["--hp-finishSolid" as any]:theme.area,["--hp-card" as any]:theme.card,["--hp-ink" as any]:theme.ink,["--hp-inkSoft" as any]:theme.inkSoft,["--hp-border" as any]:theme.border,["--hp-shadow" as any]:theme.shadow}as any)}}>
+    <div className="hp-app min-h-screen w-full flex flex-col items-center p-4 text-xs" style={{...({["--hp-appTop" as any]:theme.appTop,["--hp-appBottom" as any]:theme.appBottom,["--hp-area" as any]:theme.area,["--hp-panel" as any]:theme.panel,["--hp-msg" as any]:theme.msg,["--hp-finish" as any]:theme.finish,["--hp-finishSolid" as any]:(isNord?"color-mix(in srgb, var(--hp-panel) 92%, #556277 8%)":"var(--hp-panel)"),["--hp-card" as any]:theme.card,["--hp-ink" as any]:theme.ink,["--hp-inkSoft" as any]:theme.inkSoft,["--hp-border" as any]:theme.border,["--hp-shadow" as any]:theme.shadow}as any)}}>
       <style>{`
         .hp-app{ color:var(--hp-ink); background: var(--hp-area); }
         .hp-panel{ background:var(--hp-panel); border:1px solid color-mix(in srgb, var(--hp-border) 75%, transparent); box-shadow:var(--hp-shadow); }
@@ -588,7 +666,7 @@ export default function App(){
         .hp-finish{position:relative; overflow:hidden; border:1px solid color-mix(in srgb, var(--hp-border) 82%, var(--hp-ink) 18%); box-shadow:var(--hp-shadow); color:var(--hp-inkSoft);}
         .hp-finish::before{content:""; position:absolute; inset:0; background:var(--hp-finishSolid); z-index:0;}
         .hp-finish > *{position:relative; z-index:1;}
-        .hp-finish .hp-card{background:var(--hp-finishSolid);}
+        .hp-finish .hp-card{background:var(--hp-area);}
         .hp-card{background:var(--hp-card); border:1px solid var(--hp-border); box-shadow:var(--hp-shadow);}
         .hp-switch{display:inline-flex; align-items:center; user-select:none;}
         .hp-settingsSwitch{display:inline-flex; align-items:center; height:22px;}
@@ -629,7 +707,7 @@ export default function App(){
           <div style={{display:"flex",gap:8}}>{(["default","moss","warm","dusk","dark"]as ColorScheme[]).map(s=>(
             <button key={s} onClick={()=>setScheme(s)} onPointerEnter={()=>setSchemeTip(s==="dark"?"nord":s)} onPointerLeave={()=>setSchemeTip("")} aria-label={`color scheme ${s}`} style={{width:12,height:12,borderRadius:"50%",background:s==="default"?SCHEMES.default.BLUE:s==="dark"?"#43566f":(s==="warm"?SCHEMES[s].RED:SCHEMES[s].BLUE),boxShadow:scheme===s?(isNord?"0 0 0 2px rgba(206,214,224,0.56), 0 0 0 4px rgba(129,161,193,0.24)":"0 0 0 2px rgba(90,80,60,0.35)"):(isNord?"0 0 0 1px rgba(206,214,224,0.20), 0 0.75px 2px rgba(15,23,42,0.38)":"0 0.5px 1.5px rgba(90,80,60,0.12)"),opacity:scheme===s?1:(isNord?0.74:0.65),transition:"opacity 160ms ease, box-shadow 160ms ease"}}/>
           ))}</div>
-          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.8.2</span>
+          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.8.3</span>
         </div>
       </header>
 
@@ -691,6 +769,7 @@ export default function App(){
       <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5 flex items-center justify-between gap-2" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
         <span className="truncate">{message||(extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / top-right eraser icon or Shift to toggle` : (schemeTip?`scheme : ${schemeTip}`:""))}</span>
         <button
+          ref={screenshotToggleRef}
           className="px-2 py-0.5 rounded hp-input text-[11px] shrink-0 disabled:opacity-60"
           onClick={()=>setShowScreenshotList(v=>!v)}
           disabled={screenshotLoading&&!showScreenshotList}
@@ -700,35 +779,58 @@ export default function App(){
         </button>
       </div>
 
-      {showScreenshotList&&(
-      <div className={`w-full max-w-5xl hp-panel ${isNord?"hp-panelNord":""} rounded-2xl px-3 py-2 mb-1`} style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-xs font-semibold">saved screenshots</div>
-          <button
-            className="px-2 py-1 rounded hp-input text-[11px] disabled:opacity-60"
-            onClick={()=>loadScreenshotHistory(userUid)}
-            disabled={!userUid||screenshotLoading}
-          >
-            {screenshotLoading?"loading...":"refresh"}
-          </button>
-        </div>
-        {screenshotError&&<div className="text-[11px] mb-2" style={{color:RED}}>load failed: {screenshotError}</div>}
-        {!screenshotError&&screenshotList.length===0&&!screenshotLoading&&<div className="text-[11px] opacity-70">no screenshot yet</div>}
-        {screenshotList.length>0&&(
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {screenshotList.map(item=>(
-              <div key={item.id} className="hp-card rounded-xl p-1.5 min-w-[140px] w-[140px] shrink-0">
-                <img src={item.image} alt={`${item.kind} screenshot`} className="w-full h-[82px] object-contain rounded-lg border" style={{borderColor:theme.border,background:theme.area}} />
-                <div className="mt-1 text-[11px] font-semibold">{item.kind}</div>
-                <div className="text-[10px] opacity-70">{item.timestamp?item.timestamp.toLocaleString():"(time pending)"}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      )}
-
       <div ref={areaRef} className="relative w-full flex-1 hp-area rounded-2xl overflow-hidden select-none" style={{width:"100vw",cursor:"crosshair",touchAction:"none"}} onDoubleClick={onAreaDoubleClick} onMouseDown={onAreaMouseDown} onContextMenu={e=>e.preventDefault()}>
+        {showScreenshotList&&(
+        <div
+          ref={screenshotPanelRef}
+          className={`absolute top-2 left-1/2 -translate-x-1/2 w-full max-w-5xl hp-panel ${isNord?"hp-panelNord":""} rounded-2xl px-3 py-2`}
+          style={{transform:"scale(0.86)",transformOrigin:"top center",zIndex:28}}
+          onMouseDown={(e)=>e.stopPropagation()}
+          onDoubleClick={(e)=>e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-semibold">
+              {extraMode?"saved Painter Shots":"saved Finish Card"}
+            </div>
+            <button
+              className="px-2 py-1 rounded hp-input text-[11px] disabled:opacity-60"
+              onClick={()=>loadScreenshotHistory(userUid)}
+              disabled={!userUid||screenshotLoading}
+            >
+              {screenshotLoading?"loading...":"refresh"}
+            </button>
+          </div>
+          {screenshotError&&<div className="text-[11px] mb-2" style={{color:RED}}>load failed: {screenshotError}</div>}
+          {!screenshotError&&visibleScreenshotList.length===0&&!screenshotLoading&&<div className="text-[11px] opacity-70">no screenshot yet</div>}
+          {visibleScreenshotList.length>0&&(
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {visibleScreenshotList.map(item=>(
+                <div key={item.id} className="hp-card rounded-xl p-1.5 min-w-[140px] w-[140px] shrink-0 relative group">
+                  <div className="relative">
+                    <button className="block w-full" onClick={()=>setSelectedScreenshot(item)} aria-label={`open ${item.kind} screenshot`} style={{cursor:"zoom-in"}}>
+                      <img src={item.image} alt={`${item.kind} screenshot`} className="w-full h-[82px] object-contain rounded-lg border" style={{borderColor:theme.border,background:theme.area}} />
+                    </button>
+                  </div>
+                  <div className="mt-1 text-[11px] font-semibold">{formatShotKind(item.kind)}</div>
+                  <div className="text-[10px] opacity-70">{formatDateTime(item.timestamp)}</div>
+                  <button
+                    className="absolute right-0 bottom-0 translate-x-[24%] translate-y-[24%] w-5 h-5 rounded-full text-[11px] leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                    style={{background:"rgba(15,23,42,0.55)",color:"#f8fafc",border:"1px solid rgba(241,245,249,0.42)",pointerEvents:deletingScreenshotId===item.id?"none":"auto"}}
+                    onMouseDown={(e)=>e.stopPropagation()}
+                    onClick={(e)=>{e.stopPropagation();void onDeleteScreenshot(item)}}
+                    disabled={deletingScreenshotId===item.id}
+                    aria-label="delete screenshot"
+                    title="delete screenshot"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        )}
+
         {pointerGuide&&(
           <div
             aria-hidden="true"
@@ -817,6 +919,73 @@ export default function App(){
           </div>
         )}
       </div>
+
+      {selectedScreenshot&&(
+        <div
+          className="fixed inset-0 flex items-center justify-center p-4"
+          style={{zIndex:60,background:"rgba(9,12,18,0.62)"}}
+          onMouseDown={()=>setSelectedScreenshot(null)}
+          onMouseMove={(e)=>{
+            const imageRect=modalImageRef.current?.getBoundingClientRect();
+            if(!imageRect){hideModalNav();return;}
+            const edge=Math.max(48,Math.min(96,imageRect.width*0.18));
+            const x=e.clientX,y=e.clientY;
+            const hasPrev=selectedScreenshotIndex>0;
+            const hasNext=selectedScreenshotIndex>=0&&selectedScreenshotIndex<visibleScreenshotList.length-1;
+            let hit:""|"left"|"right"="";
+            const inY=y>=imageRect.top&&y<=imageRect.bottom;
+            if(inY&&x>=imageRect.left&&x<=imageRect.left+edge&&hasPrev)hit="left";
+            else if(inY&&x<=imageRect.right&&x>=imageRect.right-edge&&hasNext)hit="right";
+            if(!hit){hideModalNav();return;}
+            setModalNavVisible(true);
+            setModalNavEdge(hit);
+            scheduleModalNavHide();
+          }}
+          onMouseLeave={hideModalNav}
+        >
+          <div
+            className="hp-panel rounded-2xl pt-1 px-1 pb-2"
+            style={{maxWidth:"min(96vw,1200px)",maxHeight:"92vh"}}
+            onMouseDown={(e)=>e.stopPropagation()}
+          >
+            <div className="relative inline-block">
+              <img
+                ref={modalImageRef}
+                src={selectedScreenshot.image}
+                alt={`${selectedScreenshot.kind} full screenshot`}
+                className="block rounded-xl"
+                style={{maxWidth:"min(92vw,1160px)",maxHeight:"86vh",objectFit:"contain",background:theme.area}}
+              />
+              {modalNavVisible&&modalNavEdge==="left"&&selectedScreenshotIndex>0&&(
+                <button
+                  className="absolute left-0 top-1/2 -translate-x-[33%] -translate-y-1/2 rounded-full w-11 h-11 text-2xl"
+                  style={{zIndex:61,background:"rgba(15,23,42,0.46)",color:"#f8fafc",border:"1px solid rgba(241,245,249,0.36)"}}
+                  onMouseDown={(e)=>e.stopPropagation()}
+                  onClick={()=>openModalScreenshotAt(selectedScreenshotIndex-1)}
+                  aria-label="previous screenshot"
+                >
+                  ‹
+                </button>
+              )}
+              {modalNavVisible&&modalNavEdge==="right"&&selectedScreenshotIndex>=0&&selectedScreenshotIndex<visibleScreenshotList.length-1&&(
+                <button
+                  className="absolute right-0 top-1/2 translate-x-[33%] -translate-y-1/2 rounded-full w-11 h-11 text-2xl"
+                  style={{zIndex:61,background:"rgba(15,23,42,0.46)",color:"#f8fafc",border:"1px solid rgba(241,245,249,0.36)"}}
+                  onMouseDown={(e)=>e.stopPropagation()}
+                  onClick={()=>openModalScreenshotAt(selectedScreenshotIndex+1)}
+                  aria-label="next screenshot"
+                >
+                  ›
+                </button>
+              )}
+            </div>
+            <div className="mt-2 px-3 flex items-center justify-between text-[11px]" style={{color:theme.inkSoft}}>
+              <span>{formatShotKind(selectedScreenshot.kind)}</span>
+              <span>{formatDateTime(selectedScreenshot.timestamp)}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

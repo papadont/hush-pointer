@@ -1,7 +1,13 @@
 import { initializeApp } from "firebase/app";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { getAuth, signInAnonymously, type User } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentSingleTabManager,
+  type Firestore
+} from "firebase/firestore";
 
 const env = import.meta.env as Record<string, string | undefined>;
 
@@ -42,7 +48,17 @@ if (appCheckSiteKey) {
   console.warn("App Check is disabled: VITE_FIREBASE_APPCHECK_SITE_KEY is missing.");
 }
 
-export const db = getFirestore(app);
+let firestoreDb: Firestore;
+try {
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentSingleTabManager({}) })
+  });
+} catch (error) {
+  console.warn("Failed to enable persistent Firestore cache. Falling back to default instance.", error);
+  firestoreDb = getFirestore(app);
+}
+
+export const db = firestoreDb;
 export const auth = getAuth(app);
 
 let anonSignInPromise: Promise<User> | null = null;

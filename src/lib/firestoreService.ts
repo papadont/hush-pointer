@@ -1,7 +1,22 @@
-import { addDoc, collection, deleteDoc, doc, getDocs, limit, query, serverTimestamp, where, type Timestamp } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  startAfter,
+  where,
+  type DocumentData,
+  type QueryDocumentSnapshot,
+  type Timestamp
+} from "firebase/firestore";
 import { db } from "./firebaseConfig";
 
-type ScreenshotKind = "finish" | "painter";
+export type ScreenshotKind = "finish" | "painter";
 
 export type ScreenshotRecord = {
   id: string;
@@ -26,6 +41,14 @@ export type ScreenshotRecord = {
   eraserMode?: boolean;
 };
 
+export type ScreenshotPageCursor = QueryDocumentSnapshot<DocumentData> | null;
+
+export type ScreenshotPage = {
+  rows: ScreenshotRecord[];
+  nextCursor: ScreenshotPageCursor;
+  hasMore: boolean;
+};
+
 export async function saveScreenshot(
   kind: ScreenshotKind,
   base64Image: string,
@@ -41,22 +64,60 @@ export async function saveScreenshot(
   return docRef.id;
 }
 
-export async function listScreenshotsByUid(uid: string, maxCount = 24): Promise<ScreenshotRecord[]> {
-  const snap = await getDocs(
-    query(collection(db, "screenshots"), where("uid", "==", uid), limit(maxCount))
+function mapScreenshotDoc(snapshot: QueryDocumentSnapshot<DocumentData>): ScreenshotRecord {
+  const data = snapshot.data() as Omit<ScreenshotRecord, "id" | "timestamp"> & { timestamp?: Timestamp };
+  return {
+    id: snapshot.id,
+    ...data,
+    timestamp: data.timestamp?.toDate?.() ?? null
+  };
+}
+
+async function listScreenshotsPage(
+  uid: string,
+  kind: ScreenshotKind,
+  pageSize: number,
+  cursor: ScreenshotPageCursor
+): Promise<ScreenshotPage> {
+  const fetchSize = Math.max(1, pageSize) + 1;
+  const base = query(
+    collection(db, "screenshots"),
+    where("uid", "==", uid),
+    where("kind", "==", kind),
+    orderBy("timestamp", "desc"),
+    limit(fetchSize)
   );
+  const paged = cursor ? query(base, startAfter(cursor)) : base;
+  const snap = await getDocs(paged);
+  const pageDocs = snap.docs.slice(0, pageSize);
+  const hasMore = snap.docs.length > pageSize;
+  const nextCursor = hasMore ? (pageDocs[pageDocs.length - 1] ?? null) : null;
 
-  const rows = snap.docs.map((doc) => {
-    const data = doc.data() as Omit<ScreenshotRecord, "id" | "timestamp"> & { timestamp?: Timestamp };
-    return {
-      id: doc.id,
-      ...data,
-      timestamp: data.timestamp?.toDate?.() ?? null
-    };
-  });
+  return {
+    rows: pageDocs.map(mapScreenshotDoc),
+    nextCursor,
+    hasMore
+  };
+}
 
-  rows.sort((a, b) => (b.timestamp?.getTime() ?? 0) - (a.timestamp?.getTime() ?? 0));
-  return rows;
+export async function listScreenshotsFirstPage(
+  uid: string,
+  kind: ScreenshotKind,
+  pageSize = 24
+): Promise<ScreenshotPage> {
+  return listScreenshotsPage(uid, kind, pageSize, null);
+}
+
+export async function listScreenshotsNextPage(
+  uid: string,
+  kind: ScreenshotKind,
+  cursor: ScreenshotPageCursor,
+  pageSize = 24
+): Promise<ScreenshotPage> {
+  if (!cursor) {
+    return { rows: [], nextCursor: null, hasMore: false };
+  }
+  return listScreenshotsPage(uid, kind, pageSize, cursor);
 }
 
 export async function deleteScreenshotById(id: string) {

@@ -32,6 +32,7 @@ export default function App(){
   const[mode,setMode]=useState<Mode>("random"),[beepMode,setBeepMode]=useState<BeepMode>("miss");
   const[reactionSamples,setReactionSamples]=useState<ReactionSample[]>([]);
   const[glowMode,setGlowMode]=useState(false),[hoveringTarget,setHoveringTarget]=useState(false),[ringFlashId,setRingFlashId]=useState(0);
+  const[pointerGuide,setPointerGuide]=useState(false);
 
   // --- bonus mode : HUSH·PAINTER ---
   const[extraMode,setExtraMode]=useState(false);
@@ -58,6 +59,9 @@ export default function App(){
   const histMax=useMemo(()=>{if(!hist.blue.length)return 0;let m=0;for(let i=0;i<hist.bins;i++)m=Math.max(m,(hist.blue[i]??0)+(hist.red[i]??0));return m},[hist]);
   const timeText=useMemo(()=>`${Math.ceil(timeLeft).toString().padStart(2,"0")}s`,[timeLeft]);
   const glowVars:React.CSSProperties&{"--glowBase"?:number}={"--glowBase":hoveringTarget?1.05:.82};
+  const guideGridMajor=scheme==="dark"?"rgba(122,130,144,0.30)":rgba(BLUE,.16);
+  const guideGridMinor=scheme==="dark"?"rgba(103,110,123,0.18)":rgba(BLUE,.08);
+  const isNord=scheme==="dark";
 
   const flashMessage=(txt:string)=>{setMessage(txt);window.clearTimeout((flashMessage as any)._t);(flashMessage as any)._t=window.setTimeout(()=>setMessage(""),1800)};
   const playBeep=(freq:number,kind:"hit"|"miss"|"finish")=>{if(beepMode==="off")return;if(beepMode==="miss"&&kind!=="miss")return;const AudioCtx=window.AudioContext||(window as any).webkitAudioContext;if(!AudioCtx)return;const ctx=new AudioCtx(),osc=ctx.createOscillator(),g=ctx.createGain();osc.type="square";osc.frequency.value=freq;const now=ctx.currentTime;g.gain.setValueAtTime(.0001,now);g.gain.linearRampToValueAtTime(.18,now+.002);osc.connect(g);g.connect(ctx.destination);osc.start();const dur=kind==="finish"?.18:.04;g.gain.linearRampToValueAtTime(.0001,now+dur);osc.stop(now+dur+.002);osc.onended=()=>{try{ctx.close()}catch{}}};
@@ -222,6 +226,17 @@ export default function App(){
     });
   };
 
+  useEffect(()=>{
+    if(!extraMode)return;
+    const onKeyDown=(e:KeyboardEvent)=>{
+      if(e.key!=="Shift"||e.repeat)return;
+      e.preventDefault();
+      toggleEraserMode();
+    };
+    window.addEventListener("keydown",onKeyDown);
+    return()=>window.removeEventListener("keydown",onKeyDown);
+  },[extraMode]);
+
   const onPainterPointerDown=(e:React.PointerEvent)=>{
     if(!extraMode)return;
     const canvas=painterCanvasRef.current,ctx=ensurePainterCtx();
@@ -311,30 +326,37 @@ export default function App(){
   };
 
   return(
-    <div className="hp-app min-h-screen w-full flex flex-col items-center p-4 text-xs" style={{...({["--hp-appTop" as any]:theme.appTop,["--hp-appBottom" as any]:theme.appBottom,["--hp-area" as any]:theme.area,["--hp-panel" as any]:theme.panel,["--hp-msg" as any]:theme.msg,["--hp-finish" as any]:theme.finish,["--hp-card" as any]:theme.card,["--hp-ink" as any]:theme.ink,["--hp-inkSoft" as any]:theme.inkSoft,["--hp-border" as any]:theme.border,["--hp-shadow" as any]:theme.shadow}as any)}}>
+    <div className="hp-app min-h-screen w-full flex flex-col items-center p-4 text-xs" style={{...({["--hp-appTop" as any]:theme.appTop,["--hp-appBottom" as any]:theme.appBottom,["--hp-area" as any]:theme.area,["--hp-panel" as any]:theme.panel,["--hp-msg" as any]:theme.msg,["--hp-finish" as any]:theme.finish,["--hp-finishSolid" as any]:theme.area,["--hp-card" as any]:theme.card,["--hp-ink" as any]:theme.ink,["--hp-inkSoft" as any]:theme.inkSoft,["--hp-border" as any]:theme.border,["--hp-shadow" as any]:theme.shadow}as any)}}>
       <style>{`
         .hp-app{ color:var(--hp-ink); background: var(--hp-area); }
         .hp-panel{ background:var(--hp-panel); border:1px solid color-mix(in srgb, var(--hp-border) 75%, transparent); box-shadow:var(--hp-shadow); }
+        .hp-panelNord{ background:color-mix(in srgb, var(--hp-panel) 92%, #556277 8%); border-color:color-mix(in srgb, var(--hp-border) 70%, rgba(216,222,233,0.32)); box-shadow:0 0.75px 2px rgba(8,12,18,0.30); }
         .hp-area{ background:var(--hp-area); border:none; box-shadow:none; }
         .hp-msg{background:var(--hp-msg); color:var(--hp-inkSoft); border:1px solid var(--hp-border); box-shadow:var(--hp-shadow);}
         .hp-input{background:var(--hp-card); color:var(--hp-ink); border:1px solid var(--hp-border);}
-        .hp-finish{background:color-mix(in srgb, var(--hp-finish) 88%, transparent); border:1px solid var(--hp-border); box-shadow:var(--hp-shadow); color:var(--hp-inkSoft);}
+        .hp-finish{position:relative; overflow:hidden; border:1px solid color-mix(in srgb, var(--hp-border) 82%, var(--hp-ink) 18%); box-shadow:var(--hp-shadow); color:var(--hp-inkSoft);}
+        .hp-finish::before{content:""; position:absolute; inset:0; background:var(--hp-finishSolid); z-index:0;}
+        .hp-finish > *{position:relative; z-index:1;}
+        .hp-finish .hp-card{background:var(--hp-finishSolid);}
         .hp-card{background:var(--hp-card); border:1px solid var(--hp-border); box-shadow:var(--hp-shadow);}
         .hp-switch{display:inline-flex; align-items:center; user-select:none;}
         .hp-settingsSwitch{display:inline-flex; align-items:center; height:22px;}
         .hp-switchBtn{position:relative;width:54px;height:22px;border-radius:999px;border:1px solid color-mix(in srgb, var(--hp-border) 70%, transparent);background:color-mix(in srgb, var(--hp-card) 85%, transparent);box-shadow:var(--hp-shadow);transition:transform 120ms ease, filter 180ms ease, background 220ms ease, border-color 220ms ease;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;}
         .hp-switchBtn:active{transform:scale(0.98);} .hp-switchBtn[aria-checked="true"]{background: color-mix(in srgb, #cfeee0 70%, var(--hp-card));border-color: color-mix(in srgb, #9fd6c8 65%, var(--hp-border));filter: drop-shadow(0 0 8px rgba(150, 210, 220, 0.45));}
+        .hp-switchBtnGuide[aria-checked="true"]{background: color-mix(in srgb, #c9defe 72%, var(--hp-card));border-color: color-mix(in srgb, #89b5f6 62%, var(--hp-border));filter: drop-shadow(0 0 6px rgba(102, 156, 245, 0.38));}
         .hp-switchBtnErase[aria-checked="true"]{background: color-mix(in srgb, #f3c6ce 72%, var(--hp-card));border-color: color-mix(in srgb, #e09aaa 66%, var(--hp-border));filter: drop-shadow(0 0 8px rgba(232, 122, 145, 0.45));}
         .hp-switchBtn:focus-visible{outline:none; box-shadow:0 0 0 2px color-mix(in srgb, ${rgba(BLUE,.99)} 55%, transparent), var(--hp-shadow);} 
         .hp-switchLabel{position:relative;z-index:2;font-size:11px;letter-spacing:0.12em;text-transform:lowercase;font-weight:600;opacity:0.75;pointer-events:none;transition:color 220ms ease, text-shadow 220ms ease, opacity 220ms ease;}
         .hp-switchBtn[aria-checked="true"] .hp-switchLabel{opacity:1;color: var(--hp-ink);text-shadow: 0 0 4px rgba(255,255,255,0.55), 0 0 10px rgba(255,255,255,0.25);} 
+        .hp-switchBtnNordText .hp-switchLabel{color:rgba(236,239,244,0.95);opacity:0.9;text-shadow:none;}
+        .hp-switchBtnNordText[aria-checked="true"] .hp-switchLabel{color:#0f172a;opacity:1;text-shadow:none;}
         @keyframes ringRippleFade { 0% { opacity: 1; transform: translateZ(0) scale(1); } 100% { opacity: 0; transform: translateZ(0) scale(3.0); } }
         @keyframes glowAppear { from { opacity: 0; } to { opacity: var(--glowBase); } }
         @keyframes glowShimmer {0% { opacity: calc(var(--glowBase) * 0.55); transform: scale(3.50) translate(0px, 0px); filter: blur(2.3px); }22% { opacity: calc(var(--glowBase) * 1.25); transform: scale(3.50) translate(1px, -1px); filter: blur(2.9px); }50% { opacity: calc(var(--glowBase) * 0.50); transform: scale(3.30) translate(-1px, 1px); filter: blur(2.5px); }78% { opacity: calc(var(--glowBase) * 1.35); transform: scale(3.70) translate(2px, 0px); filter: blur(3.1px); }100% { opacity: calc(var(--glowBase) * 0.58); transform: scale(3.35) translate(-2px, -1px); filter: blur(2.6px); }}
       `}</style>
 
-      <header className="w-full max-w-5xl mb-2 relative" style={{paddingLeft:0}}>
-        <h1 style={{margin:0,lineHeight:1.15,marginLeft:75,display:"flex",alignItems:"baseline",gap:10}}>
+      <header className="w-full max-w-5xl mb-2 relative" style={{paddingLeft:0,height:34,minHeight:34,display:"flex",alignItems:"center",overflow:"hidden"}}>
+        <h1 style={{margin:0,height:24,lineHeight:1,marginLeft:75,display:"flex",alignItems:"center",gap:10,whiteSpace:"nowrap"}}>
           <span
             onClick={toggleExtraMode}
             title="click to toggle bonus mode"
@@ -354,29 +376,29 @@ export default function App(){
         </h1>
         <div className="absolute select-none" style={{right:68,top:4,display:"flex",alignItems:"center",gap:54,marginRight:10}}>
           <div style={{display:"flex",gap:8}}>{(["default","moss","warm","dusk","dark"]as ColorScheme[]).map(s=>(
-            <button key={s} onClick={()=>setScheme(s)} onPointerEnter={()=>setSchemeTip(s==="dark"?"nord":s)} onPointerLeave={()=>setSchemeTip("")} aria-label={`color scheme ${s}`} style={{width:12,height:12,borderRadius:"50%",background:s==="default"?SCHEMES.default.BLUE:s==="dark"?"#3a4a63":(s==="warm"?SCHEMES[s].RED:SCHEMES[s].BLUE),boxShadow:scheme===s?"0 0 0 2px rgba(90,80,60,0.35)":"0 0.5px 1.5px rgba(90,80,60,0.12)",opacity:scheme===s?1:.65,transition:"opacity 160ms ease, box-shadow 160ms ease"}}/>
+            <button key={s} onClick={()=>setScheme(s)} onPointerEnter={()=>setSchemeTip(s==="dark"?"nord":s)} onPointerLeave={()=>setSchemeTip("")} aria-label={`color scheme ${s}`} style={{width:12,height:12,borderRadius:"50%",background:s==="default"?SCHEMES.default.BLUE:s==="dark"?"#43566f":(s==="warm"?SCHEMES[s].RED:SCHEMES[s].BLUE),boxShadow:scheme===s?(isNord?"0 0 0 2px rgba(206,214,224,0.56), 0 0 0 4px rgba(129,161,193,0.24)":"0 0 0 2px rgba(90,80,60,0.35)"):(isNord?"0 0 0 1px rgba(206,214,224,0.20), 0 0.75px 2px rgba(15,23,42,0.38)":"0 0.5px 1.5px rgba(90,80,60,0.12)"),opacity:scheme===s?1:(isNord?0.74:0.65),transition:"opacity 160ms ease, box-shadow 160ms ease"}}/>
           ))}</div>
-          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.7.5</span>
+          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.7.6</span>
         </div>
       </header>
 
       <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-4 gap-2 mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
-        <div className="hp-panel rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]"><div><div className="opacity-70">timeleft</div><div className="text-lg font-bold">{timeText}</div></div>
+        <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]`}><div><div className="opacity-70">timeleft</div><div className="text-lg font-bold">{timeText}</div></div>
           <button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:extraMode?RED:BLUE,boxShadow:theme.shadow}} onClick={()=>{extraMode?clearPainter():startGame()}} disabled={running&&(!extraMode)}> {extraMode?"CLEAR":"START"} </button>
         </div>
 
-        <div className="hp-panel rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]"><div><div className="opacity-70">score</div><div className="text-lg font-bold">{extraMode?paintScore:score}</div></div>
+        <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]`}><div><div className="opacity-70">score</div><div className="text-lg font-bold">{extraMode?paintScore:score}</div></div>
           <div className="text-center"><div className="opacity-70">{extraMode?"strokes":"hits"}</div><div className="text-lg font-bold">{extraMode?paintStrokes:hitCount}</div></div>
           <div className="text-right"><div className="opacity-70">{extraMode?"ink":"miss"}</div><div className="text-lg font-bold">{extraMode?Math.floor(paintAreaRef.current):miss}</div></div>
         </div>
 
-        <div className="hp-panel rounded-2xl p-2.5 flex items-center justify-center min-h-[4.5rem]"><div className="flex items-center">
+        <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 flex items-center justify-center min-h-[4.5rem]`}><div className="flex items-center">
           <div className="px-6 text-center"><div className="opacity-70">reaction</div><div className="text-lg font-bold">{medianReaction.toFixed(2)}<span className="opacity-70 ml-0.5">s</span></div></div>
           <div className="h-8 border-l" style={{borderColor:theme.border}}/>
           <div className="px-6 text-center"><div className="opacity-70">best</div><div className="text-lg font-bold" style={{color:theme.inkSoft}}>{minReaction.toFixed(2)}<span className="opacity-70 ml-0.5">s</span></div></div>
         </div></div>
 
-        <div className="hp-panel rounded-2xl p-2.5 min-h-[4.5rem]" style={{accentColor:BLUE}}>
+        <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 min-h-[4.5rem]`} style={{accentColor:BLUE}}>
           <div className="flex items-center justify-between mb-1">
             <div className="text-xs font-semibold">⚙️ settings for Trackball</div>
             <button className="px-2 py-1 rounded hp-input" onClick={()=>setBeepMode(nextBeep)} title={beepMode==="all"?"beep":beepMode==="miss"?"miss":"off"} aria-label={beepMode==="all"?"beep":beepMode==="miss"?"miss":"off"} style={{opacity:beepMode==="off"?.5:1,minWidth:44,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>
@@ -387,17 +409,21 @@ export default function App(){
             <input type="range" min={4} max={160} step={1} value={targetSize} onChange={e=>setTargetSize(parseInt(e.target.value))} className="flex-1 min-w-0"/>
             <input type="number" min={2} max={320} step={1} value={targetSize} onChange={e=>setTargetSize(Number.isFinite(+e.target.value)?Math.max(2,Math.min(320,+e.target.value)):targetSize)} className="w-16 px-1 py-0.5 rounded hp-input"/>
             <span className="text-xs">px</span>
-            <span className="ml-auto hp-switch hp-settingsSwitch"><button type="button" className="hp-switchBtn" role="switch" aria-label="aura" aria-checked={glowMode} onClick={()=>setGlowMode(v=>!v)}><span className="hp-switchLabel">aura</span></button></span>
+            <span className="ml-auto hp-switch hp-settingsSwitch"><button type="button" className={`hp-switchBtn ${isNord?"hp-switchBtnNordText":""}`} role="switch" aria-label="aura" aria-checked={glowMode} onClick={()=>setGlowMode(v=>!v)}><span className="hp-switchLabel">aura</span></button></span>
           </div>
           <div className="flex items-center text-xs mb-1">
             <div className="flex items-center gap-2">
-              <label><input type="radio" name="mode" checked={mode==="left"} onChange={()=>setMode("left")}/> {extraMode?"blue":"left"}</label>
-              <label><input type="radio" name="mode" checked={mode==="right"} onChange={()=>setMode("right")}/> {extraMode?"red":"right"}</label>
+              <label><input type="radio" name="mode" checked={mode==="left"} onChange={()=>setMode("left")}/> left</label>
+              <label><input type="radio" name="mode" checked={mode==="right"} onChange={()=>setMode("right")}/> right</label>
               <label><input type="radio" name="mode" checked={mode==="random"} onChange={()=>setMode("random")}/> random</label>
             </div>
-            {extraMode&&(
-              <span className="ml-auto hp-switch hp-settingsSwitch"><button type="button" className="hp-switchBtn hp-switchBtnErase" role="switch" aria-label="eraser mode" aria-checked={eraserMode} onClick={toggleEraserMode}><span className="hp-switchLabel">erase</span></button></span>
-            )}
+            <span className="ml-auto hp-switch hp-settingsSwitch">
+              {extraMode?(
+                <button type="button" className="hp-switchBtn hp-switchBtnErase" role="switch" aria-label="eraser mode" aria-checked={eraserMode} onClick={toggleEraserMode}><span className="hp-switchLabel">erase</span></button>
+              ):(
+                <button type="button" className={`hp-switchBtn hp-switchBtnGuide ${isNord?"hp-switchBtnNordText":""}`} role="switch" aria-label="guide mode" aria-checked={pointerGuide} onClick={()=>setPointerGuide(v=>!v)}><span className="hp-switchLabel">guide</span></button>
+              )}
+            </span>
           </div>
         </div>
       </div>
@@ -405,13 +431,30 @@ export default function App(){
       <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>{extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / click erase switch to toggle` : (schemeTip?`scheme : ${schemeTip}`:(message||""))}</div>
 
       <div ref={areaRef} className="relative w-full flex-1 hp-area rounded-2xl overflow-hidden select-none" style={{width:"100vw",cursor:"crosshair",touchAction:"none"}} onDoubleClick={onAreaDoubleClick} onMouseDown={onAreaMouseDown} onContextMenu={e=>e.preventDefault()}>
+        {!extraMode&&pointerGuide&&(
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              zIndex:1,
+              backgroundImage:[
+                `linear-gradient(to right, ${guideGridMajor} 1px, transparent 1px)`,
+                `linear-gradient(to bottom, ${guideGridMajor} 1px, transparent 1px)`,
+                `linear-gradient(to right, ${guideGridMinor} 1px, transparent 1px)`,
+                `linear-gradient(to bottom, ${guideGridMinor} 1px, transparent 1px)`
+              ].join(","),
+              backgroundSize:"40px 40px, 40px 40px, 20px 20px, 20px 20px",
+              backgroundPosition:"0 0, 0 0, 0 0, 0 0"
+            }}
+          />
+        )}
         {extraMode&&(
           <canvas ref={painterCanvasRef} className="absolute inset-0" style={{zIndex:2,cursor:"crosshair"}} onPointerDown={onPainterPointerDown} onPointerMove={onPainterPointerMove} onPointerUp={endPainterStroke} onPointerCancel={endPainterStroke} onPointerLeave={endPainterStroke} onContextMenu={e=>e.preventDefault()} />
         )}
         {!extraMode&&!running&&!finished&&<div className="absolute inset-0 grid place-items-center font-bold text-[14px]" style={{color:BLUE}}>double click to start</div>}
 
         {finished && !extraMode && (
-          <div className="absolute inset-0 grid place-items-center" style={{transform:"translateY(-18px)",color:theme.inkSoft}}>
+          <div className="absolute inset-0 grid place-items-center" style={{zIndex:12,transform:"translateY(-18px)",color:theme.inkSoft}}>
             <div className="text-center w-[min(560px,94vw)] rounded-3xl px-5 py-4 hp-finish" style={{transform:"scale(0.87)",transformOrigin:"center"}}>
               <div className="mb-2">
                 <div className="h-2" />

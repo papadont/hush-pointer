@@ -1,5 +1,9 @@
 import html2canvas from "html2canvas";
 
+type ScreenshotRenderOptions = {
+  backgroundColor?: string | null;
+};
+
 function readCssText() {
   let cssText = "";
   for (const sheet of Array.from(document.styleSheets)) {
@@ -49,24 +53,40 @@ ${cssText}
   return canvas.toDataURL("image/png");
 }
 
-export async function elementToPngDataUrl(node: HTMLElement) {
+export async function elementToPngDataUrl(
+  node: HTMLElement,
+  options: ScreenshotRenderOptions = {}
+) {
   const scale = Math.max(2, window.devicePixelRatio || 1);
+  const backgroundColor = options.backgroundColor ?? null;
   try {
     const canvas = await html2canvas(node, {
-      backgroundColor: null,
+      backgroundColor,
       scale,
       useCORS: true,
       logging: false,
-      foreignObjectRendering: true
+      foreignObjectRendering: false
     });
     return canvas.toDataURL("image/png");
   } catch (firstError) {
     try {
-      return await renderViaSvg(node);
+      const canvas = await html2canvas(node, {
+        backgroundColor,
+        scale,
+        useCORS: true,
+        logging: false,
+        foreignObjectRendering: true
+      });
+      return canvas.toDataURL("image/png");
     } catch (secondError) {
-      const first = firstError instanceof Error ? firstError.message : String(firstError);
-      const second = secondError instanceof Error ? secondError.message : String(secondError);
-      throw new Error(`html2canvas failed: ${first} / svg fallback failed: ${second}`);
+      try {
+        return await renderViaSvg(node);
+      } catch (thirdError) {
+        const first = firstError instanceof Error ? firstError.message : String(firstError);
+        const second = secondError instanceof Error ? secondError.message : String(secondError);
+        const third = thirdError instanceof Error ? thirdError.message : String(thirdError);
+        throw new Error(`html2canvas failed: ${first} / foreignObject failed: ${second} / svg fallback failed: ${third}`);
+      }
     }
   }
 }

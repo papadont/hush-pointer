@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState}from"react";
 import { ensureAnonymousUser } from "./lib/firebaseConfig";
-import { saveScreenshot } from "./lib/firestoreService";
+import { listScreenshotsByUid, saveScreenshot, type ScreenshotRecord } from "./lib/firestoreService";
 import { elementToPngDataUrl } from "./lib/screenshot";
 // HUSH·POINTER v1.5b : trackball-oriented reaction training (frozen, compact build)
 
@@ -50,6 +50,11 @@ export default function App(){
   const[eraserMode,setEraserMode]=useState(false);
   const[savingFinish,setSavingFinish]=useState(false);
   const[savingPainter,setSavingPainter]=useState(false);
+  const[userUid,setUserUid]=useState("");
+  const[screenshotList,setScreenshotList]=useState<ScreenshotRecord[]>([]);
+  const[screenshotLoading,setScreenshotLoading]=useState(false);
+  const[screenshotError,setScreenshotError]=useState("");
+  const[showScreenshotList,setShowScreenshotList]=useState(false);
   const[paintScore,setPaintScore]=useState(0),paintScoreRef=useRef(0);
   const[paintStrokes,setPaintStrokes]=useState(0),paintStrokesRef=useRef(0);
   const paintAreaRef=useRef(0);
@@ -71,12 +76,160 @@ export default function App(){
 
   const flashMessage=(txt:string)=>{setMessage(txt);window.clearTimeout((flashMessage as any)._t);(flashMessage as any)._t=window.setTimeout(()=>setMessage(""),2800)};
   const playBeep=(freq:number,kind:"hit"|"miss"|"finish")=>{if(beepMode==="off")return;if(beepMode==="miss"&&kind!=="miss")return;const AudioCtx=window.AudioContext||(window as any).webkitAudioContext;if(!AudioCtx)return;const ctx=new AudioCtx(),osc=ctx.createOscillator(),g=ctx.createGain();osc.type="square";osc.frequency.value=freq;const now=ctx.currentTime;g.gain.setValueAtTime(.0001,now);g.gain.linearRampToValueAtTime(.18,now+.002);osc.connect(g);g.connect(ctx.destination);osc.start();const dur=kind==="finish"?.18:.04;g.gain.linearRampToValueAtTime(.0001,now+dur);osc.stop(now+dur+.002);osc.onended=()=>{try{ctx.close()}catch{}}};
+  const getAreaBackgroundColor=()=>{
+    const area=areaRef.current;
+    if(!area)return theme.area;
+    const areaStyle=window.getComputedStyle(area);
+    const bg=areaStyle.backgroundColor;
+    if(bg&&bg!=="transparent"&&bg!=="rgba(0, 0, 0, 0)")return bg;
+    const areaVar=areaStyle.getPropertyValue("--hp-area").trim();
+    if(areaVar)return areaVar;
+    const app=area.closest(".hp-app") as HTMLElement|null;
+    if(app){
+      const appStyle=window.getComputedStyle(app);
+      const appBg=appStyle.backgroundColor;
+      if(appBg&&appBg!=="transparent"&&appBg!=="rgba(0, 0, 0, 0)")return appBg;
+      const appVar=appStyle.getPropertyValue("--hp-area").trim();
+      if(appVar)return appVar;
+    }
+    return theme.area;
+  };
+  const parseCssRgb=(css:string)=>{
+    const m=css.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+    if(!m)return null;
+    return [Math.round(Number(m[1])),Math.round(Number(m[2])),Math.round(Number(m[3]))] as const;
+  };
+  const cropDataUrl=async(dataUrl:string,crop:{x:number;y:number;width:number;height:number})=>{
+    const image=await new Promise<HTMLImageElement>((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>resolve(img);
+      img.onerror=reject;
+      img.src=dataUrl;
+    });
+    const canvas=document.createElement("canvas");
+    canvas.width=Math.max(1,Math.floor(crop.width));
+    canvas.height=Math.max(1,Math.floor(crop.height));
+    const ctx=canvas.getContext("2d");
+    if(!ctx)throw new Error("2D context unavailable");
+    ctx.drawImage(
+      image,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+    return canvas.toDataURL("image/png");
+  };
+  const cropDataUrlByBackground=async(dataUrl:string,backgroundCss:string,padding=18,threshold=12)=>{
+    const bg=parseCssRgb(backgroundCss);
+    if(!bg)return dataUrl;
+    const image=await new Promise<HTMLImageElement>((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>resolve(img);
+      img.onerror=reject;
+      img.src=dataUrl;
+    });
+    const canvas=document.createElement("canvas");
+    canvas.width=Math.max(1,image.naturalWidth||image.width);
+    canvas.height=Math.max(1,image.naturalHeight||image.height);
+    const ctx=canvas.getContext("2d");
+    if(!ctx)return dataUrl;
+    ctx.drawImage(image,0,0,canvas.width,canvas.height);
+    const {data}=ctx.getImageData(0,0,canvas.width,canvas.height);
+    let minX=canvas.width,minY=canvas.height,maxX=-1,maxY=-1;
+    for(let y=0;y<canvas.height;y++){
+      for(let x=0;x<canvas.width;x++){
+        const i=(y*canvas.width+x)*4;
+        const a=data[i+3]??0;
+        if(a<8)continue;
+        const dr=Math.abs((data[i]??0)-bg[0]);
+        const dg=Math.abs((data[i+1]??0)-bg[1]);
+        const db=Math.abs((data[i+2]??0)-bg[2]);
+        if(Math.max(dr,dg,db)<=threshold)continue;
+        if(x<minX)minX=x;
+        if(y<minY)minY=y;
+        if(x>maxX)maxX=x;
+        if(y>maxY)maxY=y;
+      }
+    }
+    if(maxX<minX||maxY<minY)return dataUrl;
+    const x0=Math.max(0,minX-padding),y0=Math.max(0,minY-padding);
+    const x1=Math.min(canvas.width-1,maxX+padding),y1=Math.min(canvas.height-1,maxY+padding);
+    return cropDataUrl(dataUrl,{x:x0,y:y0,width:x1-x0+1,height:y1-y0+1});
+  };
+  const resizeDataUrl=async(dataUrl:string,scale:number)=>{
+    const s=Math.max(0.1,Math.min(1,scale));
+    if(s===1)return dataUrl;
+    const image=await new Promise<HTMLImageElement>((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>resolve(img);
+      img.onerror=reject;
+      img.src=dataUrl;
+    });
+    const w=Math.max(1,Math.floor((image.naturalWidth||image.width)*s));
+    const h=Math.max(1,Math.floor((image.naturalHeight||image.height)*s));
+    const canvas=document.createElement("canvas");
+    canvas.width=w;canvas.height=h;
+    const ctx=canvas.getContext("2d");
+    if(!ctx)throw new Error("2D context unavailable");
+    ctx.drawImage(image,0,0,w,h);
+    return canvas.toDataURL("image/png");
+  };
+  const cropPainterCanvas=(canvas:HTMLCanvasElement,padding=8)=>{
+    const ctx=canvas.getContext("2d");
+    if(!ctx)return null;
+    const src=ctx.getImageData(0,0,canvas.width,canvas.height);
+    const data=src.data;
+    let minX=canvas.width,minY=canvas.height,maxX=-1,maxY=-1;
+    for(let y=0;y<canvas.height;y++){
+      for(let x=0;x<canvas.width;x++){
+        const a=data[(y*canvas.width+x)*4+3]??0;
+        if(a>0){
+          if(x<minX)minX=x;
+          if(y<minY)minY=y;
+          if(x>maxX)maxX=x;
+          if(y>maxY)maxY=y;
+        }
+      }
+    }
+    if(maxX<minX||maxY<minY)return null;
+    const x0=Math.max(0,minX-padding),y0=Math.max(0,minY-padding);
+    const x1=Math.min(canvas.width-1,maxX+padding),y1=Math.min(canvas.height-1,maxY+padding);
+    return{x:x0,y:y0,width:x1-x0+1,height:y1-y0+1};
+  };
+
+  const loadScreenshotHistory=async(uid:string)=>{
+    if(!uid)return;
+    setScreenshotLoading(true);
+    setScreenshotError("");
+    try{
+      const rows=await listScreenshotsByUid(uid,24);
+      setScreenshotList(rows);
+    }catch(error){
+      console.error("Failed to list screenshots",error);
+      const reason=error instanceof Error?error.message:String(error);
+      setScreenshotError(reason);
+    }finally{
+      setScreenshotLoading(false);
+    }
+  };
 
   useEffect(()=>{
-    ensureAnonymousUser().catch(error=>{
-      const reason=error instanceof Error?error.message:String(error);
-      setMessage(`auth failed: ${reason}`);
-    });
+    (async()=>{
+      try{
+        const user=await ensureAnonymousUser();
+        if(!user?.uid)throw new Error("anonymous auth is not ready");
+        setUserUid(user.uid);
+        await loadScreenshotHistory(user.uid);
+      }catch(error){
+        const reason=error instanceof Error?error.message:String(error);
+        setMessage(`auth failed: ${reason}`);
+      }
+    })();
   },[]);
 
   const ringStroke=(c:Color)=>{const base=c==="blue"?BLUE:RED;const a=scheme==="dark"?1.0:0.92;return rgba(base,a)};
@@ -86,7 +239,7 @@ export default function App(){
   const spawnTarget=()=>{setHoveringTarget(false);hoveringTargetRef.current=false;const area=areaRef.current;if(!area)return;const rect=area.getBoundingClientRect(),w=rect.width,h=rect.height,size=Math.max(2,Math.min(targetSize,Math.min(w,h))),x=Math.random()*Math.max(0,w-size),y=Math.random()*Math.max(0,h-size);
     const color:Color=mode==="left"?"blue":mode==="right"?"red":Math.random()<.5?"blue":"red";targetSpawnedAt.current=performance.now();setTarget({x,y,color})};
 
-  const startGame=()=>{setComboFlash(false);setHitCount(0);hitRef.current=0;setScore(0);scoreRef.current=0;setMiss(0);missRef.current=0;setStreak(0);setTimeLeft(DURATION);setRunning(true);setFinished(false);setMessage("");setPerfectBonus(0);perfectBonusRef.current=0;setShowPerfectBonus(false);setReactionSamples([]);ignoredFirstReaction.current=false;spawnTarget()};
+  const startGame=()=>{setShowScreenshotList(false);setComboFlash(false);setHitCount(0);hitRef.current=0;setScore(0);scoreRef.current=0;setMiss(0);missRef.current=0;setStreak(0);setTimeLeft(DURATION);setRunning(true);setFinished(false);setMessage("");setPerfectBonus(0);perfectBonusRef.current=0;setShowPerfectBonus(false);setReactionSamples([]);ignoredFirstReaction.current=false;spawnTarget()};
 
   const endGame=()=>{const missNow=missRef.current,hitNow=hitRef.current,scoreNow=scoreRef.current;
     if(missNow===0&&hitNow>0){const rate=Math.min(.6,.3+hitNow*.01),bonus=Math.max(50,Math.floor(scoreNow*rate));setPerfectBonus(bonus);perfectBonusRef.current=bonus;setShowPerfectBonus(false);setTimeout(()=>setShowPerfectBonus(true),220);
@@ -254,6 +407,7 @@ export default function App(){
     if(!extraMode)return;
     const canvas=painterCanvasRef.current,ctx=ensurePainterCtx();
     if(!canvas||!ctx)return;
+    setShowScreenshotList(false);
     if(e.button===2)e.preventDefault();
     (e.currentTarget as any).setPointerCapture?.(e.pointerId);
     drawingRef.current=true;
@@ -341,12 +495,16 @@ export default function App(){
 
   const saveFinishCardScreenshot=async()=>{
     const card=finishCardRef.current;
-    if(!card||savingFinish)return;
+    const area=areaRef.current;
+    if(!card||!area||savingFinish)return;
     setSavingFinish(true);
     try{
       const user=await ensureAnonymousUser();
       if(!user?.uid) throw new Error("anonymous auth is not ready");
-      const base64=await elementToPngDataUrl(card);
+      const bg=getAreaBackgroundColor();
+      const areaBase64=await elementToPngDataUrl(area,{backgroundColor:bg});
+      const cropped=await cropDataUrlByBackground(areaBase64,bg,18,12);
+      const base64=await resizeDataUrl(cropped,0.54);
       await saveScreenshot("finish",base64,{
         uid:user.uid,
         score,
@@ -361,6 +519,7 @@ export default function App(){
         glowMode,
         pointerGuide
       });
+      await loadScreenshotHistory(user.uid);
       flashMessage("finish screenshot saved");
     }catch(error){
       console.error("Failed to save finish screenshot",error);
@@ -378,7 +537,22 @@ export default function App(){
     try{
       const user=await ensureAnonymousUser();
       if(!user?.uid) throw new Error("anonymous auth is not ready");
-      const base64=canvas.toDataURL("image/png");
+      const exportCanvas=document.createElement("canvas");
+      const crop=cropPainterCanvas(canvas,10);
+      if(crop){
+        exportCanvas.width=crop.width;
+        exportCanvas.height=crop.height;
+      }else{
+        exportCanvas.width=canvas.width;
+        exportCanvas.height=canvas.height;
+      }
+      const exportCtx=exportCanvas.getContext("2d");
+      if(!exportCtx)throw new Error("2D context unavailable");
+      exportCtx.fillStyle=getAreaBackgroundColor();
+      exportCtx.fillRect(0,0,exportCanvas.width,exportCanvas.height);
+      if(crop)exportCtx.drawImage(canvas,crop.x,crop.y,crop.width,crop.height,0,0,crop.width,crop.height);
+      else exportCtx.drawImage(canvas,0,0);
+      const base64=exportCanvas.toDataURL("image/png");
       await saveScreenshot("painter",base64,{
         uid:user.uid,
         paintScore,
@@ -391,6 +565,7 @@ export default function App(){
         glowMode,
         pointerGuide
       });
+      await loadScreenshotHistory(user.uid);
       flashMessage("painter screenshot saved");
     }catch(error){
       console.error("Failed to save painter screenshot",error);
@@ -454,14 +629,14 @@ export default function App(){
           <div style={{display:"flex",gap:8}}>{(["default","moss","warm","dusk","dark"]as ColorScheme[]).map(s=>(
             <button key={s} onClick={()=>setScheme(s)} onPointerEnter={()=>setSchemeTip(s==="dark"?"nord":s)} onPointerLeave={()=>setSchemeTip("")} aria-label={`color scheme ${s}`} style={{width:12,height:12,borderRadius:"50%",background:s==="default"?SCHEMES.default.BLUE:s==="dark"?"#43566f":(s==="warm"?SCHEMES[s].RED:SCHEMES[s].BLUE),boxShadow:scheme===s?(isNord?"0 0 0 2px rgba(206,214,224,0.56), 0 0 0 4px rgba(129,161,193,0.24)":"0 0 0 2px rgba(90,80,60,0.35)"):(isNord?"0 0 0 1px rgba(206,214,224,0.20), 0 0.75px 2px rgba(15,23,42,0.38)":"0 0.5px 1.5px rgba(90,80,60,0.12)"),opacity:scheme===s?1:(isNord?0.74:0.65),transition:"opacity 160ms ease, box-shadow 160ms ease"}}/>
           ))}</div>
-          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.8.1</span>
+          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.8.2</span>
         </div>
       </header>
 
       <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-4 gap-2 mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
         <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]`}><div><div className="opacity-70">timeleft</div><div className="text-lg font-bold">{timeText}</div></div>
           <div className="flex items-center gap-2">
-            {extraMode&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={savePainterScreenshot} disabled={savingPainter}>{savingPainter?"SAVING":"SAVE"}</button>}
+            {extraMode&&paintStrokes>0&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={savePainterScreenshot} disabled={savingPainter}>{savingPainter?"SAVING":"SAVE"}</button>}
             {!extraMode&&finished&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={saveFinishCardScreenshot} disabled={savingFinish}>{savingFinish?"SAVING":"SAVE"}</button>}
             <button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:extraMode?RED:BLUE,boxShadow:theme.shadow}} onClick={()=>{extraMode?clearPainter():startGame()}} disabled={running&&(!extraMode)}> {extraMode?"CLEAR":"START"} </button>
           </div>
@@ -513,7 +688,45 @@ export default function App(){
         </div>
       </div>
 
-      <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>{message||(extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / top-right eraser icon or Shift to toggle` : (schemeTip?`scheme : ${schemeTip}`:""))}</div>
+      <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5 flex items-center justify-between gap-2" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
+        <span className="truncate">{message||(extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / top-right eraser icon or Shift to toggle` : (schemeTip?`scheme : ${schemeTip}`:""))}</span>
+        <button
+          className="px-2 py-0.5 rounded hp-input text-[11px] shrink-0 disabled:opacity-60"
+          onClick={()=>setShowScreenshotList(v=>!v)}
+          disabled={screenshotLoading&&!showScreenshotList}
+          aria-label={showScreenshotList?"hide saved screenshots":"show saved screenshots"}
+        >
+          {showScreenshotList?"hide shots":"show shots"}
+        </button>
+      </div>
+
+      {showScreenshotList&&(
+      <div className={`w-full max-w-5xl hp-panel ${isNord?"hp-panelNord":""} rounded-2xl px-3 py-2 mb-1`} style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs font-semibold">saved screenshots</div>
+          <button
+            className="px-2 py-1 rounded hp-input text-[11px] disabled:opacity-60"
+            onClick={()=>loadScreenshotHistory(userUid)}
+            disabled={!userUid||screenshotLoading}
+          >
+            {screenshotLoading?"loading...":"refresh"}
+          </button>
+        </div>
+        {screenshotError&&<div className="text-[11px] mb-2" style={{color:RED}}>load failed: {screenshotError}</div>}
+        {!screenshotError&&screenshotList.length===0&&!screenshotLoading&&<div className="text-[11px] opacity-70">no screenshot yet</div>}
+        {screenshotList.length>0&&(
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {screenshotList.map(item=>(
+              <div key={item.id} className="hp-card rounded-xl p-1.5 min-w-[140px] w-[140px] shrink-0">
+                <img src={item.image} alt={`${item.kind} screenshot`} className="w-full h-[82px] object-contain rounded-lg border" style={{borderColor:theme.border,background:theme.area}} />
+                <div className="mt-1 text-[11px] font-semibold">{item.kind}</div>
+                <div className="text-[10px] opacity-70">{item.timestamp?item.timestamp.toLocaleString():"(time pending)"}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      )}
 
       <div ref={areaRef} className="relative w-full flex-1 hp-area rounded-2xl overflow-hidden select-none" style={{width:"100vw",cursor:"crosshair",touchAction:"none"}} onDoubleClick={onAreaDoubleClick} onMouseDown={onAreaMouseDown} onContextMenu={e=>e.preventDefault()}>
         {pointerGuide&&(

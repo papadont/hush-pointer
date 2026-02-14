@@ -378,7 +378,7 @@ export default function App(){
           <div style={{display:"flex",gap:8}}>{(["default","moss","warm","dusk","dark"]as ColorScheme[]).map(s=>(
             <button key={s} onClick={()=>setScheme(s)} onPointerEnter={()=>setSchemeTip(s==="dark"?"nord":s)} onPointerLeave={()=>setSchemeTip("")} aria-label={`color scheme ${s}`} style={{width:12,height:12,borderRadius:"50%",background:s==="default"?SCHEMES.default.BLUE:s==="dark"?"#43566f":(s==="warm"?SCHEMES[s].RED:SCHEMES[s].BLUE),boxShadow:scheme===s?(isNord?"0 0 0 2px rgba(206,214,224,0.56), 0 0 0 4px rgba(129,161,193,0.24)":"0 0 0 2px rgba(90,80,60,0.35)"):(isNord?"0 0 0 1px rgba(206,214,224,0.20), 0 0.75px 2px rgba(15,23,42,0.38)":"0 0.5px 1.5px rgba(90,80,60,0.12)"),opacity:scheme===s?1:(isNord?0.74:0.65),transition:"opacity 160ms ease, box-shadow 160ms ease"}}/>
           ))}</div>
-          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.7.7</span>
+          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.8.0</span>
         </div>
       </header>
 
@@ -401,9 +401,18 @@ export default function App(){
         <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 min-h-[4.5rem]`} style={{accentColor:BLUE}}>
           <div className="flex items-center justify-between mb-1">
             <div className="text-xs font-semibold">⚙️ settings for Trackball</div>
-            <button className="px-2 py-1 rounded hp-input" onClick={()=>setBeepMode(nextBeep)} title={beepMode==="all"?"beep":beepMode==="miss"?"miss":"off"} aria-label={beepMode==="all"?"beep":beepMode==="miss"?"miss":"off"} style={{opacity:beepMode==="off"?.5:1,minWidth:44,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>
-              {beepMode==="off"?(<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M23 9 17 15"/><path d="M17 9 23 15"/></svg>):beepMode==="miss"?(<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a4 4 0 0 1 0 7"/></svg>):(<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a4 4 0 0 1 0 7"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>)}
-            </button>
+            {extraMode?(
+              <button className="px-2 py-1 rounded hp-input" onClick={toggleEraserMode} title={eraserMode?"eraser on":"eraser off"} aria-label={eraserMode?"eraser on":"eraser off"} style={{opacity:1,minWidth:44,display:"inline-flex",alignItems:"center",justifyContent:"center",background:eraserMode?"color-mix(in srgb, #f3c6ce 72%, var(--hp-card))":"var(--hp-card)",borderColor:eraserMode?"color-mix(in srgb, #e09aaa 66%, var(--hp-border))":"var(--hp-border)",filter:eraserMode?"drop-shadow(0 0 8px rgba(232, 122, 145, 0.45))":"none",transition:"filter 180ms ease, background 220ms ease, border-color 220ms ease"}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 15.5 12.6 7a2 2 0 0 1 2.8 0l4.6 4.6a2 2 0 0 1 0 2.8l-5.2 5.1a2 2 0 0 1-1.4.6H8.8a2 2 0 0 1-1.4-.6L4 16.9a1 1 0 0 1 0-1.4Z"/>
+                  <path d="M11.2 19.9 18 13.1"/>
+                </svg>
+              </button>
+            ):(
+              <button className="px-2 py-1 rounded hp-input" onClick={()=>setBeepMode(nextBeep)} title={beepMode==="all"?"beep":beepMode==="miss"?"miss":"off"} aria-label={beepMode==="all"?"beep":beepMode==="miss"?"miss":"off"} style={{opacity:beepMode==="off"?.5:1,minWidth:44,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>
+                {beepMode==="off"?(<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M23 9 17 15"/><path d="M17 9 23 15"/></svg>):beepMode==="miss"?(<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a4 4 0 0 1 0 7"/></svg>):(<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a4 4 0 0 1 0 7"/><path d="M19 6a8 8 0 0 1 0 12"/></svg>)}
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2 mb-1">
             <input type="range" min={4} max={160} step={1} value={targetSize} onChange={e=>setTargetSize(parseInt(e.target.value))} className="flex-1 min-w-0"/>
@@ -418,20 +427,16 @@ export default function App(){
               <label><input type="radio" name="mode" checked={mode==="random"} onChange={()=>setMode("random")}/> random</label>
             </div>
             <span className="ml-auto hp-switch hp-settingsSwitch">
-              {extraMode?(
-                <button type="button" className="hp-switchBtn hp-switchBtnErase" role="switch" aria-label="eraser mode" aria-checked={eraserMode} onClick={toggleEraserMode}><span className="hp-switchLabel">erase</span></button>
-              ):(
-                <button type="button" className={`hp-switchBtn hp-switchBtnGuide ${isNord?"hp-switchBtnNordText":""}`} role="switch" aria-label="guide mode" aria-checked={pointerGuide} onClick={()=>setPointerGuide(v=>!v)}><span className="hp-switchLabel">guide</span></button>
-              )}
+              <button type="button" className={`hp-switchBtn hp-switchBtnGuide ${isNord?"hp-switchBtnNordText":""}`} role="switch" aria-label="guide mode" aria-checked={pointerGuide} onClick={()=>setPointerGuide(v=>!v)}><span className="hp-switchLabel">guide</span></button>
             </span>
           </div>
         </div>
       </div>
 
-      <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>{extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / click erase switch to toggle` : (schemeTip?`scheme : ${schemeTip}`:(message||""))}</div>
+      <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>{extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / top-right eraser icon or Shift to toggle` : (schemeTip?`scheme : ${schemeTip}`:(message||""))}</div>
 
       <div ref={areaRef} className="relative w-full flex-1 hp-area rounded-2xl overflow-hidden select-none" style={{width:"100vw",cursor:"crosshair",touchAction:"none"}} onDoubleClick={onAreaDoubleClick} onMouseDown={onAreaMouseDown} onContextMenu={e=>e.preventDefault()}>
-        {!extraMode&&pointerGuide&&(
+        {pointerGuide&&(
           <div
             aria-hidden="true"
             className="absolute inset-0 pointer-events-none"

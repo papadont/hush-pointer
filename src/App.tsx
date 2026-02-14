@@ -355,7 +355,7 @@ export default function App(){
         @keyframes glowShimmer {0% { opacity: calc(var(--glowBase) * 0.55); transform: scale(3.50) translate(0px, 0px); filter: blur(2.3px); }22% { opacity: calc(var(--glowBase) * 1.25); transform: scale(3.50) translate(1px, -1px); filter: blur(2.9px); }50% { opacity: calc(var(--glowBase) * 0.50); transform: scale(3.30) translate(-1px, 1px); filter: blur(2.5px); }78% { opacity: calc(var(--glowBase) * 1.35); transform: scale(3.70) translate(2px, 0px); filter: blur(3.1px); }100% { opacity: calc(var(--glowBase) * 0.58); transform: scale(3.35) translate(-2px, -1px); filter: blur(2.6px); }}
       `}</style>
 
-      <header className="w-full max-w-5xl mb-2 relative" style={{paddingLeft:0,height:34,minHeight:34,display:"flex",alignItems:"center",overflow:"hidden"}}>
+      <header className="w-full max-w-5xl mb-0 relative" style={{paddingLeft:0,height:26,minHeight:26,display:"flex",alignItems:"center",overflow:"hidden"}}>
         <h1 style={{margin:0,height:24,lineHeight:1,marginLeft:75,display:"flex",alignItems:"center",gap:10,whiteSpace:"nowrap"}}>
           <span
             onClick={toggleExtraMode}
@@ -378,7 +378,7 @@ export default function App(){
           <div style={{display:"flex",gap:8}}>{(["default","moss","warm","dusk","dark"]as ColorScheme[]).map(s=>(
             <button key={s} onClick={()=>setScheme(s)} onPointerEnter={()=>setSchemeTip(s==="dark"?"nord":s)} onPointerLeave={()=>setSchemeTip("")} aria-label={`color scheme ${s}`} style={{width:12,height:12,borderRadius:"50%",background:s==="default"?SCHEMES.default.BLUE:s==="dark"?"#43566f":(s==="warm"?SCHEMES[s].RED:SCHEMES[s].BLUE),boxShadow:scheme===s?(isNord?"0 0 0 2px rgba(206,214,224,0.56), 0 0 0 4px rgba(129,161,193,0.24)":"0 0 0 2px rgba(90,80,60,0.35)"):(isNord?"0 0 0 1px rgba(206,214,224,0.20), 0 0.75px 2px rgba(15,23,42,0.38)":"0 0.5px 1.5px rgba(90,80,60,0.12)"),opacity:scheme===s?1:(isNord?0.74:0.65),transition:"opacity 160ms ease, box-shadow 160ms ease"}}/>
           ))}</div>
-          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.7.6</span>
+          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.7.7</span>
         </div>
       </header>
 

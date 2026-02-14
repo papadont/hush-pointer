@@ -36,17 +36,90 @@ const formatDateTime=(d:Date|null)=>{
   return `${yyyy}/${mm}/${dd} ${hh}:${mi}:${ss}`;
 };
 const formatShotKind=(kind:"finish"|"painter")=>kind==="finish"?"Finish Card":"Paint";
-type CachedScreenshotRecord=Omit<ScreenshotRecord,"timestamp">&{timestamp:string|null};
+const formatReactionValue=(value:number|undefined)=>{
+  if(typeof value!=="number"||!Number.isFinite(value))return value;
+  return value.toFixed(2);
+};
+const estimateDataUrlSizeLabel=(dataUrl:string)=>{
+  const commaIndex=dataUrl.indexOf(",");
+  const base64=commaIndex>=0?dataUrl.slice(commaIndex+1):dataUrl;
+  const padding=base64.endsWith("==")?2:base64.endsWith("=")?1:0;
+  const bytes=Math.max(0,Math.floor((base64.length*3)/4)-padding);
+  const kb=bytes/1024;
+  if(kb<1024)return`${kb.toFixed(1)} KB (approx)`;
+  return`${(kb/1024).toFixed(2)} MB (approx)`;
+};
+const buildMetaTooltipLayout=(x:number,y:number)=>{
+  const gap=14;
+  const margin=8;
+  const width=320;
+  const defaultHeight=280;
+  const maxHeightLimit=420;
+  const minHeight=140;
+  if(typeof window==="undefined"){
+    return{left:margin,top:margin,maxHeight:defaultHeight};
+  }
+  const vw=window.innerWidth;
+  const vh=window.innerHeight;
+  const left=Math.max(margin,Math.min(x+gap,vw-width-margin));
+  const belowTop=y+gap;
+  const availableBelow=vh-belowTop-margin;
+  const availableAbove=y-gap-margin;
+  const shouldPlaceAbove=availableBelow<minHeight&&availableAbove>availableBelow;
+  const maxHeight=Math.max(
+    minHeight,
+    Math.min(maxHeightLimit,shouldPlaceAbove?availableAbove:availableBelow)
+  );
+  const top=shouldPlaceAbove
+    ? Math.max(margin,y-gap-maxHeight)
+    : Math.max(margin,belowTop);
+  return{left,top,maxHeight};
+};
+const withScreenshotSource=(rows:ScreenshotRecord[],source:"cache"|"firestore"):ScreenshotRecord[]=>rows.map((row)=>({
+  ...row,
+  source
+}));
+const screenshotMetadataEntries=(item:ScreenshotRecord)=>{
+  const data:Record<string,unknown>={
+    source:item.source??"unknown",
+    uid:item.uid,
+    kind:item.kind,
+    timestamp:formatDateTime(item.timestamp),
+    fileSize:estimateDataUrlSizeLabel(item.image),
+    gameAreaPixels:item.gameAreaPixels,
+    scheme:item.scheme,
+    mode:item.mode,
+    targetSize:item.targetSize,
+    glowMode:item.glowMode,
+    pointerGuide:item.pointerGuide,
+    score:item.score,
+    hits:item.hits,
+    miss:item.miss,
+    median:formatReactionValue(item.median),
+    best:formatReactionValue(item.best),
+    perfectBonus:item.perfectBonus,
+    paintScore:item.paintScore,
+    paintStrokes:item.paintStrokes,
+    ink:item.ink,
+    eraserMode:item.eraserMode
+  };
+  return Object.entries(data).filter(([,v])=>v!==undefined);
+};
+type CachedScreenshotRecord=Omit<ScreenshotRecord,"timestamp"|"source">&{timestamp:string|null};
 type CachedScreenshotPayload={savedAt:number;rows:CachedScreenshotRecord[]};
 
 const buildScreenshotCacheKey=(uid:string,kind:ScreenshotKind)=>`${SCREENSHOT_CACHE_PREFIX}${uid}:${kind}`;
-const toCachedRows=(rows:ScreenshotRecord[]):CachedScreenshotRecord[]=>rows.map((row)=>({
-  ...row,
-  timestamp:row.timestamp?row.timestamp.toISOString():null
-}));
+const toCachedRows=(rows:ScreenshotRecord[]):CachedScreenshotRecord[]=>rows.map((row)=>{
+  const{source,...rest}=row;
+  return{
+    ...rest,
+    timestamp:row.timestamp?row.timestamp.toISOString():null
+  };
+});
 const fromCachedRows=(rows:CachedScreenshotRecord[]):ScreenshotRecord[]=>rows.map((row)=>({
   ...row,
-  timestamp:row.timestamp?new Date(row.timestamp):null
+  timestamp:row.timestamp?new Date(row.timestamp):null,
+  source:"cache"
 }));
 function buildHistogramByColor(bt:number[],rt:number[],bins=18){const all=[...bt,...rt];if(!all.length)return{blue:[]as number[],red:[]as number[],min:0,max:0,bins};const tMin=Math.min(...all),tMax=Math.max(...all),pad=Math.max(.02,(tMax-tMin)*.08),min=Math.max(0,tMin-pad),max=Math.max(min+.001,tMax+pad),blue=new Array(bins).fill(0),red=new Array(bins).fill(0),add=(arr:number[],t:number)=>{const p=(t-min)/(max-min),idx=Math.min(bins-1,Math.max(0,Math.floor(p*bins)));arr[idx]+=1};for(const t of bt)add(blue,t);for(const t of rt)add(red,t);return{blue,red,min,max,bins}}
 function calcHitScore(targetSizePx:number,reactionSec:number|null,areaWidthPx:number,areaHeightPx:number){
@@ -99,6 +172,9 @@ export default function App(){
   const[screenshotError,setScreenshotError]=useState("");
   const[showScreenshotList,setShowScreenshotList]=useState(false);
   const[selectedScreenshot,setSelectedScreenshot]=useState<ScreenshotRecord|null>(null);
+  const[hoveredScreenshotId,setHoveredScreenshotId]=useState("");
+  const[toggledTooltipScreenshotId,setToggledTooltipScreenshotId]=useState("");
+  const[metaTooltipPos,setMetaTooltipPos]=useState({x:0,y:0});
   const[deletingScreenshotId,setDeletingScreenshotId]=useState("");
   const[selectedScreenshotIds,setSelectedScreenshotIds]=useState<string[]>([]);
   const[bulkDeletingScreenshots,setBulkDeletingScreenshots]=useState(false);
@@ -113,6 +189,7 @@ export default function App(){
   const screenshotCursorRef=useRef<ScreenshotPageCursor>(null);
   const[paintScore,setPaintScore]=useState(0),paintScoreRef=useRef(0);
   const[paintStrokes,setPaintStrokes]=useState(0),paintStrokesRef=useRef(0);
+  const[showPainterSaveButton,setShowPainterSaveButton]=useState(false);
   const paintAreaRef=useRef(0);
   const painterLineWidth=useMemo(()=>Math.max(1,Math.round(targetSize/3.5)),[targetSize]);
   const painterEraserLineWidth=useMemo(()=>Math.max(4,Math.round(painterLineWidth*2.2)),[painterLineWidth]);
@@ -148,6 +225,10 @@ export default function App(){
   const selectedVisibleScreenshots=useMemo(
     ()=>visibleScreenshotList.filter(item=>selectedScreenshotIdSet.has(item.id)),
     [visibleScreenshotList,selectedScreenshotIdSet]
+  );
+  const hoveredScreenshot=useMemo(
+    ()=>visibleScreenshotList.find(item=>item.id===hoveredScreenshotId)??null,
+    [visibleScreenshotList,hoveredScreenshotId]
   );
   const allVisibleSelected=visibleScreenshotList.length>0&&selectedVisibleScreenshots.length===visibleScreenshotList.length;
   const timeText=useMemo(()=>`${Math.ceil(timeLeft).toString().padStart(2,"0")}s`,[timeLeft]);
@@ -345,10 +426,11 @@ export default function App(){
     setScreenshotLoading(true);
     try{
       const page=await listScreenshotsFirstPage(effectiveUid,kind,SCREENSHOT_PAGE_SIZE);
-      setScreenshotList(page.rows);
+      const firestoreRows=withScreenshotSource(page.rows,"firestore");
+      setScreenshotList(firestoreRows);
       screenshotCursorRef.current=page.nextCursor;
       setScreenshotHasMore(page.hasMore);
-      writeScreenshotCache(effectiveUid,kind,page.rows);
+      writeScreenshotCache(effectiveUid,kind,firestoreRows);
     }catch(error){
       console.error("Failed to list screenshots",error);
       const reason=error instanceof Error?error.message:String(error);
@@ -363,9 +445,10 @@ export default function App(){
     setScreenshotError("");
     try{
       const page=await listScreenshotsNextPage(userUid,screenshotKindForMode,screenshotCursorRef.current,SCREENSHOT_PAGE_SIZE);
+      const firestoreRows=withScreenshotSource(page.rows,"firestore");
       setScreenshotList((list)=>{
         const seen=new Set(list.map((item)=>item.id));
-        const merged=[...list,...page.rows.filter((item)=>!seen.has(item.id))];
+        const merged=[...list,...firestoreRows.filter((item)=>!seen.has(item.id))];
         writeScreenshotCache(userUid,screenshotKindForMode,merged);
         return merged;
       });
@@ -479,6 +562,16 @@ export default function App(){
   },[]);
 
   useEffect(()=>{
+    const onKeyDown=(ev:KeyboardEvent)=>{
+      if(ev.key!=="Shift"||ev.repeat)return;
+      if(!showScreenshotList||!hoveredScreenshotId)return;
+      setToggledTooltipScreenshotId((current)=>current===hoveredScreenshotId?"":hoveredScreenshotId);
+    };
+    window.addEventListener("keydown",onKeyDown);
+    return()=>window.removeEventListener("keydown",onKeyDown);
+  },[showScreenshotList,hoveredScreenshotId]);
+
+  useEffect(()=>{
     if(!showScreenshotList||!userUid)return;
     void loadScreenshotHistory(userUid,screenshotKindForMode);
   },[showScreenshotList,userUid,screenshotKindForMode]);
@@ -496,6 +589,12 @@ export default function App(){
     document.addEventListener("pointerdown",onPointerDown,true);
     return()=>document.removeEventListener("pointerdown",onPointerDown,true);
   },[showScreenshotList,extraMode,selectedScreenshot]);
+
+  useEffect(()=>{
+    if(showScreenshotList)return;
+    setHoveredScreenshotId("");
+    setToggledTooltipScreenshotId("");
+  },[showScreenshotList]);
 
   useEffect(()=>()=>clearModalNavHideTimer(),[]);
 
@@ -707,12 +806,13 @@ export default function App(){
     if(!extraMode)return;
     const onKeyDown=(e:KeyboardEvent)=>{
       if(e.key!=="Shift"||e.repeat)return;
+      if(showScreenshotList)return;
       e.preventDefault();
       toggleEraserMode();
     };
     window.addEventListener("keydown",onKeyDown);
     return()=>window.removeEventListener("keydown",onKeyDown);
-  },[extraMode]);
+  },[extraMode,showScreenshotList]);
 
   const onPainterPointerDown=(e:React.PointerEvent)=>{
     if(!extraMode)return;
@@ -740,6 +840,7 @@ export default function App(){
     tailSpeedRef.current=0;
     lastMoveTsRef.current=e.timeStamp;
 
+    setShowPainterSaveButton(true);
     setPaintStrokes(s=>{const next=s+1;paintStrokesRef.current=next;return next});
 
     ctx.lineWidth=erasingStrokeRef.current?painterEraserLineWidth:painterLineWidth;
@@ -866,6 +967,7 @@ export default function App(){
     setExtraMode(v=>{
       const next=!v;
       if(next){
+        setShowPainterSaveButton(false);
         setEraserMode(false);
         setRunning(false);
         setFinished(false);
@@ -999,6 +1101,20 @@ export default function App(){
         .hp-area{ background:var(--hp-area); border:none; box-shadow:none; }
         .hp-msg{background:var(--hp-msg); color:var(--hp-inkSoft); border:1px solid var(--hp-border); box-shadow:var(--hp-shadow);}
         .hp-input{background:var(--hp-card); color:var(--hp-ink); border:1px solid var(--hp-border);}
+        .hp-dangerSoft{
+          background:color-mix(in srgb, #f8dce5 66%, var(--hp-card));
+          border-color:color-mix(in srgb, #e6a7b8 60%, var(--hp-border));
+          color:color-mix(in srgb, #8d3a52 72%, var(--hp-ink));
+        }
+        .hp-shotMetaTip{
+          background:rgba(15,23,42,0.84);
+          color:rgba(248,250,252,0.96);
+          border:1px solid rgba(226,232,240,0.26);
+          box-shadow:0 8px 20px rgba(2,6,23,0.32);
+          backdrop-filter:blur(2px);
+          font-size:12px;
+          line-height:1.45;
+        }
         .hp-finish{position:relative; overflow:hidden; border:1px solid color-mix(in srgb, var(--hp-border) 82%, var(--hp-ink) 18%); box-shadow:var(--hp-shadow); color:var(--hp-inkSoft);}
         .hp-finish::before{content:""; position:absolute; inset:0; background:var(--hp-finishSolid); z-index:0;}
         .hp-finish > *{position:relative; z-index:1;}
@@ -1050,7 +1166,7 @@ export default function App(){
       <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-4 gap-2 mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
         <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]`}><div><div className="opacity-70">timeleft</div><div className="text-lg font-bold">{timeText}</div></div>
           <div className="flex items-center gap-2">
-            {extraMode&&paintStrokes>0&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={savePainterScreenshot} disabled={savingPainter||painterScreenshotSaved}>{savingPainter?"SAVING":(painterScreenshotSaved?"SAVED":"SAVE")}</button>}
+            {extraMode&&showPainterSaveButton&&paintStrokes>0&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={savePainterScreenshot} disabled={savingPainter||painterScreenshotSaved}>{savingPainter?"SAVING":(painterScreenshotSaved?"SAVED":"SAVE")}</button>}
             {!extraMode&&finished&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={saveFinishCardScreenshot} disabled={savingFinish||finishScreenshotSaved}>{savingFinish?"SAVING":(finishScreenshotSaved?"SAVED":"SAVE")}</button>}
             <button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:extraMode?RED:BLUE,boxShadow:theme.shadow}} onClick={()=>{extraMode?clearPainter():startGame()}} disabled={running&&(!extraMode)}> {extraMode?"CLEAR":"START"} </button>
           </div>
@@ -1115,7 +1231,7 @@ export default function App(){
         </button>
       </div>
 
-      <div ref={areaRef} className="relative w-full flex-1 hp-area rounded-2xl overflow-hidden select-none" style={{width:"100vw",cursor:"crosshair",touchAction:"none"}} onDoubleClick={onAreaDoubleClick} onMouseDown={onAreaMouseDown} onContextMenu={e=>e.preventDefault()}>
+      <div ref={areaRef} className={`relative w-full flex-1 hp-area rounded-2xl ${showScreenshotList?"overflow-visible":"overflow-hidden"} select-none`} style={{width:"100vw",cursor:"crosshair",touchAction:"none"}} onDoubleClick={onAreaDoubleClick} onMouseDown={onAreaMouseDown} onContextMenu={e=>e.preventDefault()}>
         {showScreenshotList&&(
         <div
           ref={screenshotPanelRef}
@@ -1153,7 +1269,7 @@ export default function App(){
                 {bulkDownloadingScreenshots?"downloading...":"download selected"}
               </button>
               <button
-                className="px-2 py-1 rounded hp-input disabled:opacity-60"
+                className="px-2 py-1 rounded hp-input hp-dangerSoft disabled:opacity-60"
                 onClick={()=>void onDeleteSelectedScreenshots()}
                 disabled={selectedVisibleScreenshots.length===0||bulkDeletingScreenshots||bulkDownloadingScreenshots||Boolean(deletingScreenshotId)}
               >
@@ -1166,9 +1282,18 @@ export default function App(){
           {!screenshotError&&visibleScreenshotList.length===0&&!screenshotLoading&&<div className="text-[11px] opacity-70">no screenshot yet</div>}
           {visibleScreenshotList.length>0&&(
             <>
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="flex gap-2 overflow-x-auto overflow-y-visible pb-1">
                 {visibleScreenshotList.map((item,index)=>(
-                  <div key={item.id} className="hp-card rounded-xl p-1.5 min-w-[140px] w-[140px] shrink-0 relative group">
+                  <div
+                    key={item.id}
+                    className="hp-card rounded-xl p-1.5 min-w-[140px] w-[140px] shrink-0 relative group"
+                    onMouseEnter={()=>setHoveredScreenshotId(item.id)}
+                    onMouseLeave={()=>{
+                      setHoveredScreenshotId((current)=>current===item.id?"":current);
+                      setToggledTooltipScreenshotId((current)=>current===item.id?"":current);
+                    }}
+                    onMouseMove={(e)=>setMetaTooltipPos({x:e.clientX,y:e.clientY})}
+                  >
                     <div className="relative">
                       <label className="absolute left-0 top-0 -translate-x-[14%] -translate-y-[14%] z-[1] inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px]" style={{background:"rgba(15,23,42,0.58)",color:"#f8fafc"}}>
                         <input
@@ -1228,6 +1353,25 @@ export default function App(){
             </>
           )}
         </div>
+        )}
+        {showScreenshotList&&hoveredScreenshot&&toggledTooltipScreenshotId===hoveredScreenshot.id&&(
+          <div
+            className="hp-shotMetaTip fixed z-[80] w-[320px] max-w-[calc(100vw-32px)] overflow-y-auto rounded-lg px-3 py-2 pointer-events-none"
+            style={(()=>{
+              const layout=buildMetaTooltipLayout(metaTooltipPos.x,metaTooltipPos.y);
+              return{
+                left:layout.left,
+                top:layout.top,
+                maxHeight:`${Math.floor(layout.maxHeight)}px`
+              };
+            })()}
+          >
+            {screenshotMetadataEntries(hoveredScreenshot).map(([key,value])=>(
+              <div key={key}>
+                <span className="opacity-70">{key}:</span> {String(value)}
+              </div>
+            ))}
+          </div>
         )}
 
         {pointerGuide&&(

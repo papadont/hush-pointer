@@ -24,6 +24,7 @@ export type ScreenshotRecord = {
   kind: ScreenshotKind;
   image: string;
   timestamp: Date | null;
+  source?: "cache" | "firestore";
   gameAreaPixels?: number;
   scheme: "default" | "moss" | "warm" | "dusk" | "dark";
   mode: "left" | "right" | "random";

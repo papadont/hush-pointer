@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useRef,useState}from"react";
 // HUSH·POINTER v1.5b : trackball-oriented reaction training (frozen, compact build)
 
-type Color="blue"|"red";type ColorScheme="default"|"warm"|"moss"|"dusk"|"dark";type Mode="left"|"right"|"random";type BeepMode="all"|"miss"|"off";type PainterTool="brush"|"eraser";type ReactionSample={t:number;color:Color};
+type Color="blue"|"red";type ColorScheme="default"|"warm"|"moss"|"dusk"|"dark";type Mode="left"|"right"|"random";type BeepMode="all"|"miss"|"off";type ReactionSample={t:number;color:Color};
 
 const nextBeep=(m:BeepMode):BeepMode=>m==="all"?"miss":m==="miss"?"off":"all";
 
@@ -35,18 +35,19 @@ export default function App(){
 
   // --- bonus mode : HUSH·PAINTER ---
   const[extraMode,setExtraMode]=useState(false);
-  const[painterTool,setPainterTool]=useState<PainterTool>("brush");
   const painterCanvasRef=useRef<HTMLCanvasElement|null>(null);
   const painterCtxRef=useRef<CanvasRenderingContext2D|null>(null);
   const drawingRef=useRef(false);
+  const erasingStrokeRef=useRef(false);
   const lastPtRef=useRef<{x:number;y:number}|null>(null);
   const auraStrokeRef=useRef(false);
   const marbleSeedRef=useRef(0);
+  const[eraserMode,setEraserMode]=useState(false);
   const[paintScore,setPaintScore]=useState(0),paintScoreRef=useRef(0);
   const[paintStrokes,setPaintStrokes]=useState(0),paintStrokesRef=useRef(0);
   const paintAreaRef=useRef(0);
   const painterLineWidth=useMemo(()=>Math.max(1,Math.round(targetSize/3.5)),[targetSize]);
-  const painterActiveLineWidth=useMemo(()=>painterTool==="eraser"?Math.max(4,Math.round(painterLineWidth*2.2)):painterLineWidth,[painterTool,painterLineWidth]);
+  const painterEraserLineWidth=useMemo(()=>Math.max(4,Math.round(painterLineWidth*2.2)),[painterLineWidth]);
 
   const reactionTimes=useMemo(()=>reactionSamples.map(s=>s.t),[reactionSamples]);
   const medianReaction=useMemo(()=>median(reactionTimes),[reactionTimes]);
@@ -213,6 +214,14 @@ export default function App(){
     }
   };
 
+  const toggleEraserMode=()=>{
+    setEraserMode(v=>{
+      const next=!v;
+      flashMessage(next?"eraser mode on":"eraser mode off");
+      return next;
+    });
+  };
+
   const onPainterPointerDown=(e:React.PointerEvent)=>{
     if(!extraMode)return;
     const canvas=painterCanvasRef.current,ctx=ensurePainterCtx();
@@ -220,6 +229,7 @@ export default function App(){
     if(e.button===2)e.preventDefault();
     (e.currentTarget as any).setPointerCapture?.(e.pointerId);
     drawingRef.current=true;
+    erasingStrokeRef.current=eraserMode;
     auraStrokeRef.current=glowMode;
     marbleSeedRef.current=0;
 
@@ -229,8 +239,8 @@ export default function App(){
 
     setPaintStrokes(s=>{const next=s+1;paintStrokesRef.current=next;return next});
 
-    ctx.lineWidth=painterActiveLineWidth;
-    if(painterTool==="eraser"){
+    ctx.lineWidth=erasingStrokeRef.current?painterEraserLineWidth:painterLineWidth;
+    if(erasingStrokeRef.current){
       ctx.globalCompositeOperation="destination-out";
       ctx.strokeStyle="rgba(0,0,0,1)";
       ctx.shadowColor="transparent";
@@ -257,7 +267,7 @@ export default function App(){
 
     const dx=x-last.x,dy=y-last.y;const len=Math.hypot(dx,dy);
 
-    if(painterTool==="eraser"){
+    if(erasingStrokeRef.current){
       ctx.globalCompositeOperation="destination-out";
       ctx.shadowColor="transparent";
       ctx.shadowBlur=0;
@@ -274,10 +284,10 @@ export default function App(){
     ctx.moveTo(x,y);
 
     lastPtRef.current={x,y};
-    painterAddArea(len,painterActiveLineWidth);
+    painterAddArea(len,erasingStrokeRef.current?painterEraserLineWidth:painterLineWidth);
   };
 
-  const endPainterStroke=()=>{if(!extraMode)return;drawingRef.current=false;lastPtRef.current=null;const ctx=ensurePainterCtx();if(ctx){ctx.beginPath();ctx.shadowBlur=0;ctx.shadowColor="transparent";ctx.globalCompositeOperation="source-over";}};
+  const endPainterStroke=()=>{if(!extraMode)return;drawingRef.current=false;erasingStrokeRef.current=false;lastPtRef.current=null;const ctx=ensurePainterCtx();if(ctx){ctx.beginPath();ctx.shadowBlur=0;ctx.shadowColor="transparent";ctx.globalCompositeOperation="source-over";}};
 
   const toggleExtraMode=()=>{
     setExtraMode(v=>{
@@ -311,23 +321,13 @@ export default function App(){
         .hp-finish{background:color-mix(in srgb, var(--hp-finish) 88%, transparent); border:1px solid var(--hp-border); box-shadow:var(--hp-shadow); color:var(--hp-inkSoft);}
         .hp-card{background:var(--hp-card); border:1px solid var(--hp-border); box-shadow:var(--hp-shadow);}
         .hp-switch{display:inline-flex; align-items:center; user-select:none;}
+        .hp-settingsSwitch{display:inline-flex; align-items:center; height:22px;}
         .hp-switchBtn{position:relative;width:54px;height:22px;border-radius:999px;border:1px solid color-mix(in srgb, var(--hp-border) 70%, transparent);background:color-mix(in srgb, var(--hp-card) 85%, transparent);box-shadow:var(--hp-shadow);transition:transform 120ms ease, filter 180ms ease, background 220ms ease, border-color 220ms ease;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;}
         .hp-switchBtn:active{transform:scale(0.98);} .hp-switchBtn[aria-checked="true"]{background: color-mix(in srgb, #cfeee0 70%, var(--hp-card));border-color: color-mix(in srgb, #9fd6c8 65%, var(--hp-border));filter: drop-shadow(0 0 8px rgba(150, 210, 220, 0.45));}
+        .hp-switchBtnErase[aria-checked="true"]{background: color-mix(in srgb, #f3c6ce 72%, var(--hp-card));border-color: color-mix(in srgb, #e09aaa 66%, var(--hp-border));filter: drop-shadow(0 0 8px rgba(232, 122, 145, 0.45));}
         .hp-switchBtn:focus-visible{outline:none; box-shadow:0 0 0 2px color-mix(in srgb, ${rgba(BLUE,.99)} 55%, transparent), var(--hp-shadow);} 
         .hp-switchLabel{position:relative;z-index:2;font-size:11px;letter-spacing:0.12em;text-transform:lowercase;font-weight:600;opacity:0.75;pointer-events:none;transition:color 220ms ease, text-shadow 220ms ease, opacity 220ms ease;}
         .hp-switchBtn[aria-checked="true"] .hp-switchLabel{opacity:1;color: var(--hp-ink);text-shadow: 0 0 4px rgba(255,255,255,0.55), 0 0 10px rgba(255,255,255,0.25);} 
-        .hp-toolBtn{border:1px solid color-mix(in srgb, var(--hp-border) 72%, transparent);background:color-mix(in srgb, var(--hp-card) 86%, transparent);box-shadow:var(--hp-shadow);transition:transform 120ms ease, filter 180ms ease, background 220ms ease, border-color 220ms ease, opacity 180ms ease;}
-        .hp-toolBtn:active{transform:scale(0.98);}
-        .hp-toolBtn[aria-pressed="true"]{
-          background: color-mix(in srgb, var(--toolColor, #9ca3af) 74%, black 8%);
-          border-color: color-mix(in srgb, var(--toolColor, #9ca3af) 78%, var(--hp-border));
-          color:#fff;
-          text-shadow:0 1px 1px rgba(0,0,0,0.22);
-          filter:none;
-          opacity:1;
-        }
-        .hp-toolBtn[aria-pressed="false"]{opacity:0.76;color:var(--hp-ink);}
-        .hp-toolBtn:focus-visible{outline:none; box-shadow:0 0 0 2px color-mix(in srgb, ${rgba(BLUE,.99)} 55%, transparent), var(--hp-shadow);}
         @keyframes ringRippleFade { 0% { opacity: 1; transform: translateZ(0) scale(1); } 100% { opacity: 0; transform: translateZ(0) scale(3.0); } }
         @keyframes glowAppear { from { opacity: 0; } to { opacity: var(--glowBase); } }
         @keyframes glowShimmer {0% { opacity: calc(var(--glowBase) * 0.55); transform: scale(3.50) translate(0px, 0px); filter: blur(2.3px); }22% { opacity: calc(var(--glowBase) * 1.25); transform: scale(3.50) translate(1px, -1px); filter: blur(2.9px); }50% { opacity: calc(var(--glowBase) * 0.50); transform: scale(3.30) translate(-1px, 1px); filter: blur(2.5px); }78% { opacity: calc(var(--glowBase) * 1.35); transform: scale(3.70) translate(2px, 0px); filter: blur(3.1px); }100% { opacity: calc(var(--glowBase) * 0.58); transform: scale(3.35) translate(-2px, -1px); filter: blur(2.6px); }}
@@ -356,7 +356,7 @@ export default function App(){
           <div style={{display:"flex",gap:8}}>{(["default","moss","warm","dusk","dark"]as ColorScheme[]).map(s=>(
             <button key={s} onClick={()=>setScheme(s)} onPointerEnter={()=>setSchemeTip(s==="dark"?"nord":s)} onPointerLeave={()=>setSchemeTip("")} aria-label={`color scheme ${s}`} style={{width:12,height:12,borderRadius:"50%",background:s==="default"?SCHEMES.default.BLUE:s==="dark"?"#3a4a63":(s==="warm"?SCHEMES[s].RED:SCHEMES[s].BLUE),boxShadow:scheme===s?"0 0 0 2px rgba(90,80,60,0.35)":"0 0.5px 1.5px rgba(90,80,60,0.12)",opacity:scheme===s?1:.65,transition:"opacity 160ms ease, box-shadow 160ms ease"}}/>
           ))}</div>
-          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.7</span>
+          <span style={{fontFamily:"Inter, system-ui, sans-serif",fontWeight:500,fontSize:11,letterSpacing:"0.06em",color:theme.inkSoft,opacity:.7}}>v1.7.5</span>
         </div>
       </header>
 
@@ -384,26 +384,25 @@ export default function App(){
             </button>
           </div>
           <div className="flex items-center gap-2 mb-1">
-            <input type="range" min={4} max={160} step={1} value={targetSize} onChange={e=>setTargetSize(parseInt(e.target.value))} className="w-full"/>
+            <input type="range" min={4} max={160} step={1} value={targetSize} onChange={e=>setTargetSize(parseInt(e.target.value))} className="flex-1 min-w-0"/>
             <input type="number" min={2} max={320} step={1} value={targetSize} onChange={e=>setTargetSize(Number.isFinite(+e.target.value)?Math.max(2,Math.min(320,+e.target.value)):targetSize)} className="w-16 px-1 py-0.5 rounded hp-input"/>
             <span className="text-xs">px</span>
+            <span className="ml-auto hp-switch hp-settingsSwitch"><button type="button" className="hp-switchBtn" role="switch" aria-label="aura" aria-checked={glowMode} onClick={()=>setGlowMode(v=>!v)}><span className="hp-switchLabel">aura</span></button></span>
           </div>
-          <div className="flex items-center gap-2 text-xs mb-1">
-            <label><input type="radio" name="mode" checked={mode==="left"} onChange={()=>setMode("left")}/> {extraMode?"blue":"left"}</label>
-            <label><input type="radio" name="mode" checked={mode==="right"} onChange={()=>setMode("right")}/> {extraMode?"red":"right"}</label>
-            <label><input type="radio" name="mode" checked={mode==="random"} onChange={()=>setMode("random")}/> random</label>
-            <span className="ml-2 hp-switch"><button type="button" className="hp-switchBtn" role="switch" aria-label="aura" aria-checked={glowMode} onClick={()=>setGlowMode(v=>!v)}><span className="hp-switchLabel">aura</span></button></span>
-          </div>
-          {extraMode&&(
-            <div className="flex items-center gap-1 text-xs">
-              <button className="px-2 py-1 rounded hp-toolBtn" aria-pressed={painterTool==="brush"} onClick={()=>setPainterTool("brush")} style={{["--toolColor" as any]:BLUE}}>brush</button>
-              <button className="px-2 py-1 rounded hp-toolBtn" aria-pressed={painterTool==="eraser"} onClick={()=>setPainterTool("eraser")} style={{["--toolColor" as any]:RED}}>eraser</button>
+          <div className="flex items-center text-xs mb-1">
+            <div className="flex items-center gap-2">
+              <label><input type="radio" name="mode" checked={mode==="left"} onChange={()=>setMode("left")}/> {extraMode?"blue":"left"}</label>
+              <label><input type="radio" name="mode" checked={mode==="right"} onChange={()=>setMode("right")}/> {extraMode?"red":"right"}</label>
+              <label><input type="radio" name="mode" checked={mode==="random"} onChange={()=>setMode("random")}/> random</label>
             </div>
-          )}
+            {extraMode&&(
+              <span className="ml-auto hp-switch hp-settingsSwitch"><button type="button" className="hp-switchBtn hp-switchBtnErase" role="switch" aria-label="eraser mode" aria-checked={eraserMode} onClick={toggleEraserMode}><span className="hp-switchLabel">erase</span></button></span>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>{extraMode ? `double click to clear / tool: ${painterTool}` : (schemeTip?`scheme : ${schemeTip}`:(message||""))}</div>
+      <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>{extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / click erase switch to toggle` : (schemeTip?`scheme : ${schemeTip}`:(message||""))}</div>
 
       <div ref={areaRef} className="relative w-full flex-1 hp-area rounded-2xl overflow-hidden select-none" style={{width:"100vw",cursor:"crosshair",touchAction:"none"}} onDoubleClick={onAreaDoubleClick} onMouseDown={onAreaMouseDown} onContextMenu={e=>e.preventDefault()}>
         {extraMode&&(

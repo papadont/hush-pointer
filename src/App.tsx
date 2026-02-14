@@ -962,9 +962,10 @@ export default function App(){
               {visibleScreenshotList.map(item=>(
                 <div key={item.id} className="hp-card rounded-xl p-1.5 min-w-[140px] w-[140px] shrink-0 relative group">
                   <div className="relative">
-                    <label className="absolute left-1.5 top-1.5 z-[1] inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px]" style={{background:"rgba(15,23,42,0.58)",color:"#f8fafc"}}>
+                    <label className="absolute left-0 top-0 -translate-x-[14%] -translate-y-[14%] z-[1] inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[10px]" style={{background:"rgba(15,23,42,0.58)",color:"#f8fafc"}}>
                       <input
                         type="checkbox"
+                        className="w-4 h-4"
                         checked={selectedScreenshotIdSet.has(item.id)}
                         onChange={()=>toggleScreenshotSelection(item.id)}
                         onMouseDown={(e)=>e.stopPropagation()}

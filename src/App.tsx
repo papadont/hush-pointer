@@ -323,10 +323,15 @@ export default function App(){
   };
 
   const loadScreenshotHistory=async(uid:string,kind:ScreenshotKind,forceRefresh=false)=>{
-    if(!uid)return;
+    const authUser=await ensureAnonymousUser().catch(()=>null);
+    const effectiveUid=authUser?.uid??uid;
+    if(!effectiveUid)return;
+    if(authUser?.uid&&authUser.uid!==userUid){
+      setUserUid(authUser.uid);
+    }
     setScreenshotError("");
 
-    const cached=readScreenshotCache(uid,kind);
+    const cached=readScreenshotCache(effectiveUid,kind);
     if(cached){
       setScreenshotList(fromCachedRows(cached.rows));
       screenshotCursorRef.current=null;
@@ -339,11 +344,11 @@ export default function App(){
 
     setScreenshotLoading(true);
     try{
-      const page=await listScreenshotsFirstPage(uid,kind,SCREENSHOT_PAGE_SIZE);
+      const page=await listScreenshotsFirstPage(effectiveUid,kind,SCREENSHOT_PAGE_SIZE);
       setScreenshotList(page.rows);
       screenshotCursorRef.current=page.nextCursor;
       setScreenshotHasMore(page.hasMore);
-      writeScreenshotCache(uid,kind,page.rows);
+      writeScreenshotCache(effectiveUid,kind,page.rows);
     }catch(error){
       console.error("Failed to list screenshots",error);
       const reason=error instanceof Error?error.message:String(error);

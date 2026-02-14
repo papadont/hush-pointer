@@ -208,6 +208,12 @@ export default function App(){
     }
     return theme.area;
   };
+  const getGameAreaPixels=()=>{
+    const rect=areaRef.current?.getBoundingClientRect();
+    const width=Math.max(1,Math.round(rect?.width??0));
+    const height=Math.max(1,Math.round(rect?.height??0));
+    return width*height;
+  };
   const parseCssRgb=(css:string)=>{
     const m=css.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
     if(!m)return null;
@@ -897,6 +903,7 @@ export default function App(){
       const base64=await resizeDataUrl(cropped,0.54);
       await saveScreenshot("finish",base64,{
         uid:user.uid,
+        gameAreaPixels:getGameAreaPixels(),
         score,
         hits:hitCount,
         miss,
@@ -951,6 +958,7 @@ export default function App(){
       const base64=exportCanvas.toDataURL("image/png");
       await saveScreenshot("painter",base64,{
         uid:user.uid,
+        gameAreaPixels:getGameAreaPixels(),
         paintScore,
         paintStrokes,
         ink:Math.floor(paintAreaRef.current),

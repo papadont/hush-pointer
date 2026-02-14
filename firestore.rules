@@ -27,7 +27,7 @@ service cloud.firestore {
   }
 
   function hasValidShape() {
-    let base = ["uid", "kind", "image", "timestamp", "scheme", "mode", "targetSize", "glowMode", "pointerGuide"];
+    let base = ["uid", "kind", "image", "timestamp", "scheme", "mode", "targetSize", "glowMode", "pointerGuide", "gameAreaPixels"];
     let finishOnly = ["score", "hits", "miss", "median", "best", "perfectBonus"];
     let painterOnly = ["paintScore", "paintStrokes", "ink", "eraserMode"];
 
@@ -53,6 +53,9 @@ service cloud.firestore {
       && request.resource.data.targetSize is int
       && request.resource.data.targetSize >= 2
       && request.resource.data.targetSize <= 320
+      && request.resource.data.gameAreaPixels is int
+      && request.resource.data.gameAreaPixels >= 1
+      && request.resource.data.gameAreaPixels <= 20000000
       && request.resource.data.glowMode is bool
       && request.resource.data.pointerGuide is bool
       && (

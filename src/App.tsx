@@ -295,91 +295,6 @@ export default function App(){
     const height=Math.max(1,Math.round(rect?.height??0));
     return width*height;
   };
-  const parseCssRgb=(css:string)=>{
-    const m=css.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
-    if(!m)return null;
-    return [Math.round(Number(m[1])),Math.round(Number(m[2])),Math.round(Number(m[3]))] as const;
-  };
-  const cropDataUrl=async(dataUrl:string,crop:{x:number;y:number;width:number;height:number})=>{
-    const image=await new Promise<HTMLImageElement>((resolve,reject)=>{
-      const img=new Image();
-      img.onload=()=>resolve(img);
-      img.onerror=reject;
-      img.src=dataUrl;
-    });
-    const canvas=document.createElement("canvas");
-    canvas.width=Math.max(1,Math.floor(crop.width));
-    canvas.height=Math.max(1,Math.floor(crop.height));
-    const ctx=canvas.getContext("2d");
-    if(!ctx)throw new Error("2D context unavailable");
-    ctx.drawImage(
-      image,
-      crop.x,
-      crop.y,
-      crop.width,
-      crop.height,
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
-    return canvas.toDataURL("image/png");
-  };
-  const cropDataUrlByBackground=async(dataUrl:string,backgroundCss:string,padding=18,threshold=12)=>{
-    const bg=parseCssRgb(backgroundCss);
-    if(!bg)return dataUrl;
-    const image=await new Promise<HTMLImageElement>((resolve,reject)=>{
-      const img=new Image();
-      img.onload=()=>resolve(img);
-      img.onerror=reject;
-      img.src=dataUrl;
-    });
-    const canvas=document.createElement("canvas");
-    canvas.width=Math.max(1,image.naturalWidth||image.width);
-    canvas.height=Math.max(1,image.naturalHeight||image.height);
-    const ctx=canvas.getContext("2d");
-    if(!ctx)return dataUrl;
-    ctx.drawImage(image,0,0,canvas.width,canvas.height);
-    const {data}=ctx.getImageData(0,0,canvas.width,canvas.height);
-    let minX=canvas.width,minY=canvas.height,maxX=-1,maxY=-1;
-    for(let y=0;y<canvas.height;y++){
-      for(let x=0;x<canvas.width;x++){
-        const i=(y*canvas.width+x)*4;
-        const a=data[i+3]??0;
-        if(a<8)continue;
-        const dr=Math.abs((data[i]??0)-bg[0]);
-        const dg=Math.abs((data[i+1]??0)-bg[1]);
-        const db=Math.abs((data[i+2]??0)-bg[2]);
-        if(Math.max(dr,dg,db)<=threshold)continue;
-        if(x<minX)minX=x;
-        if(y<minY)minY=y;
-        if(x>maxX)maxX=x;
-        if(y>maxY)maxY=y;
-      }
-    }
-    if(maxX<minX||maxY<minY)return dataUrl;
-    const x0=Math.max(0,minX-padding),y0=Math.max(0,minY-padding);
-    const x1=Math.min(canvas.width-1,maxX+padding),y1=Math.min(canvas.height-1,maxY+padding);
-    return cropDataUrl(dataUrl,{x:x0,y:y0,width:x1-x0+1,height:y1-y0+1});
-  };
-  const resizeDataUrl=async(dataUrl:string,scale:number)=>{
-    const s=Math.max(0.1,Math.min(1,scale));
-    if(s===1)return dataUrl;
-    const image=await new Promise<HTMLImageElement>((resolve,reject)=>{
-      const img=new Image();
-      img.onload=()=>resolve(img);
-      img.onerror=reject;
-      img.src=dataUrl;
-    });
-    const w=Math.max(1,Math.floor((image.naturalWidth||image.width)*s));
-    const h=Math.max(1,Math.floor((image.naturalHeight||image.height)*s));
-    const canvas=document.createElement("canvas");
-    canvas.width=w;canvas.height=h;
-    const ctx=canvas.getContext("2d");
-    if(!ctx)throw new Error("2D context unavailable");
-    ctx.drawImage(image,0,0,w,h);
-    return canvas.toDataURL("image/png");
-  };
   const cropPainterCanvas=(canvas:HTMLCanvasElement,padding=8)=>{
     const ctx=canvas.getContext("2d");
     if(!ctx)return null;
@@ -620,15 +535,16 @@ export default function App(){
   const ringStroke=(c:Color)=>{const base=c==="blue"?BLUE:RED;const a=scheme==="dark"?1.0:0.92;return rgba(base,a)};
   const glowBg=(c:Color)=>{const base=c==="blue"?BLUE:RED;const k=scheme==="dark"?1.45:1.0;return `radial-gradient(circle,${rgba(base,.48*k)} 0%,${rgba(base,.30*k)} 42%,${rgba(base,.16*k)} 72%,${rgba(base,0)} 100%)`};
   const coreBg=(c:Color)=>{const base=c==="blue"?BLUE:RED;const k=scheme==="dark"?1.25:1.0;return `radial-gradient(circle,${rgba(base,.95*k)} 0%,${rgba(base,.66*k)} 35%,${rgba(base,.38*k)} 60%,${rgba(base,0)} 100%)`};
-
   const spawnTarget=()=>{setHoveringTarget(false);hoveringTargetRef.current=false;const area=areaRef.current;if(!area)return;const rect=area.getBoundingClientRect(),w=rect.width,h=rect.height,size=Math.max(2,Math.min(targetSize,Math.min(w,h))),x=Math.random()*Math.max(0,w-size),y=Math.random()*Math.max(0,h-size);
     const color:Color=mode==="left"?"blue":mode==="right"?"red":Math.random()<.5?"blue":"red";targetSpawnedAt.current=performance.now();setTarget({x,y,color})};
 
   const startGame=()=>{setShowScreenshotList(false);setComboFlash(false);setHitCount(0);hitRef.current=0;setScore(0);scoreRef.current=0;setMiss(0);missRef.current=0;setStreak(0);setTimeLeft(DURATION);setRunning(true);setFinished(false);setMessage("");setPerfectBonus(0);perfectBonusRef.current=0;setShowPerfectBonus(false);setReactionSamples([]);setFinishScreenshotSaved(false);ignoredFirstReaction.current=false;spawnTarget()};
 
   const endGame=()=>{const missNow=missRef.current,hitNow=hitRef.current,scoreNow=scoreRef.current;
+    let finalScore=scoreNow;
     if(missNow===0&&hitNow>0){const rate=Math.min(.6,.3+hitNow*.01),bonus=Math.max(50,Math.floor(scoreNow*rate));setPerfectBonus(bonus);perfectBonusRef.current=bonus;setShowPerfectBonus(false);setTimeout(()=>setShowPerfectBonus(true),220);
-      setScore(()=>{const next=scoreNow+bonus;scoreRef.current=next;return next});flashMessage(`perfect run! +${bonus}`)}else flashMessage("finish!");
+      finalScore=scoreNow+bonus;
+      setScore(()=>{const next=finalScore;scoreRef.current=next;return next});flashMessage(`perfect run! +${bonus}`)}else flashMessage("finish!");
     playBeep(BEEP.FINISH,"finish");setRunning(false);setFinished(true);setTimeLeft(0)};
 
   useEffect(()=>{if(!running)return;const startedAt=performance.now();let raf=0;const tick=()=>{const elapsed=(performance.now()-startedAt)/1000,remain=Math.max(0,DURATION-elapsed);setTimeLeft(remain);if(remain<=0)return endGame();raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf)},[running]);
@@ -998,16 +914,13 @@ export default function App(){
 
   const saveFinishCardScreenshot=async()=>{
     const card=finishCardRef.current;
-    const area=areaRef.current;
-    if(!card||!area||savingFinish)return;
+    if(!card||savingFinish)return;
     setSavingFinish(true);
     try{
       const user=await ensureAnonymousUser();
       if(!user?.uid) throw new Error("anonymous auth is not ready");
-      const bg=getAreaBackgroundColor();
-      const areaBase64=await elementToPngDataUrl(area,{backgroundColor:bg});
-      const cropped=await cropDataUrlByBackground(areaBase64,bg,18,12);
-      const base64=await resizeDataUrl(cropped,0.54);
+      await new Promise<void>((resolve)=>window.requestAnimationFrame(()=>resolve()));
+      const base64=await elementToPngDataUrl(card,{mode:"svg-first"});
       await saveScreenshot("finish",base64,{
         uid:user.uid,
         gameAreaPixels:getGameAreaPixels(),
@@ -1398,49 +1311,51 @@ export default function App(){
 
         {finished && !extraMode && (
           <div className="absolute inset-0 grid place-items-center" style={{zIndex:12,transform:"translateY(-18px)",color:theme.inkSoft}}>
-            <div ref={finishCardRef} className="text-center w-[min(560px,94vw)] rounded-3xl px-5 py-4 hp-finish" style={{transform:"scale(0.87)",transformOrigin:"center"}}>
-              <div className="mb-2">
-                <div className="h-2" />
-                <div className="text-[14px] font-semibold tracking-[0.18em] opacity-70 mb-1">HUSH·POINTER</div>
-                <div className="text-2xl font-bold tracking-tight mb-0" style={{color:finishTitleColor}}>finish!</div>
+            <div className="w-[min(560px,94vw)]" style={{transform:"scale(0.87)",transformOrigin:"center"}}>
+              <div ref={finishCardRef} className="text-center rounded-3xl px-5 py-4 hp-finish">
+                <div className="mb-2">
+                  <div className="h-2" />
+                  <div className="text-[14px] font-semibold tracking-[0.18em] opacity-70 mb-1">HUSH·POINTER</div>
+                  <div className="text-2xl font-bold tracking-tight mb-0" style={{color:finishTitleColor}}>finish!</div>
 
-                {perfectBonus>0&&(
-                  <div className="-mt-1 flex items-center justify-center"><div className="relative inline-flex items-center gap-2 px-3 py-1">
-                    <span className="text-[14px] font-bold tracking-wide" style={{color:RED}}>perfect run!</span>
-                    <span className="text-[14px] font-semibold" style={{color:RED}}>{showPerfectBonus&&<>+{perfectBonus}</>}</span>
-                  </div></div>
-                )}
+                  {perfectBonus>0&&(
+                    <div className="-mt-1 flex items-center justify-center"><div className="relative inline-flex items-center gap-2 px-3 py-1">
+                      <span className="text-[14px] font-bold tracking-wide" style={{color:RED}}>perfect run!</span>
+                      <span className="text-[14px] font-semibold" style={{color:RED}}>{showPerfectBonus&&<>+{perfectBonus}</>}</span>
+                    </div></div>
+                  )}
 
-                {hist.blue.length>0&&histMax>0&&(
-                  <div className="mt-3">
-                    <div className="relative" style={{height:72}}>
-                      <div className="absolute left-0 right-0 bottom-0 h-px" style={{background:"rgba(100,116,139,0.28)"}} />
-                      <div className="absolute inset-0 flex items-end gap-[2px] justify-center pb-[1px]">
-                        {Array.from({length:hist.bins}).map((_,i)=>{const b=hist.blue[i]??0,r=hist.red[i]??0,total=b+r,totalH=Math.round((total/histMax)*72),bH=total>0?Math.max(1,Math.round((b/total)*totalH)):0,rH=Math.max(0,totalH-bH),from=hist.min+(i/hist.bins)*(hist.max-hist.min),to=hist.min+((i+1)/hist.bins)*(hist.max-hist.min);
-                          return(
-                            <div key={i} className="rounded-sm overflow-hidden flex flex-col justify-end" style={{width:`calc((100% - ${(hist.bins-1)*2}px) / ${hist.bins})`,minWidth:3,height:`${Math.max(1,totalH)}px`,boxShadow:theme.shadow}} title={`${from.toFixed(2)}–${to.toFixed(2)}s : blue ${b}, red ${r} (total ${total})`}>
-                              {rH>0&&<div style={{height:`${rH}px`,background:HIST_RED,boxShadow:theme.shadow}} />}
-                              {bH>0&&<div style={{height:`${bH}px`,background:HIST_BLUE,boxShadow:theme.shadow}} />}
-                            </div>
-                          )})}
+                  {hist.blue.length>0&&histMax>0&&(
+                    <div className="mt-3">
+                      <div className="relative" style={{height:72}}>
+                        <div className="absolute left-0 right-0 bottom-0 h-px" style={{background:"rgba(100,116,139,0.28)"}} />
+                        <div className="absolute inset-0 flex items-end gap-[2px] justify-center pb-[1px]">
+                          {Array.from({length:hist.bins}).map((_,i)=>{const b=hist.blue[i]??0,r=hist.red[i]??0,total=b+r,totalH=Math.round((total/histMax)*72),bH=total>0?Math.max(1,Math.round((b/total)*totalH)):0,rH=Math.max(0,totalH-bH),from=hist.min+(i/hist.bins)*(hist.max-hist.min),to=hist.min+((i+1)/hist.bins)*(hist.max-hist.min);
+                            return(
+                              <div key={i} className="rounded-sm overflow-hidden flex flex-col justify-end" style={{width:`calc((100% - ${(hist.bins-1)*2}px) / ${hist.bins})`,minWidth:3,height:`${Math.max(1,totalH)}px`,boxShadow:theme.shadow}} title={`${from.toFixed(2)}–${to.toFixed(2)}s : blue ${b}, red ${r} (total ${total})`}>
+                                {rH>0&&<div style={{height:`${rH}px`,background:HIST_RED,boxShadow:theme.shadow}} />}
+                                {bH>0&&<div style={{height:`${bH}px`,background:HIST_BLUE,boxShadow:theme.shadow}} />}
+                              </div>
+                            )})}
+                        </div>
                       </div>
+                      <div className="mt-2 flex items-center justify-between text-[13px] opacity-70"><span>{hist.min.toFixed(2)}s</span><span>{hist.max.toFixed(2)}s</span></div>
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-[13px] opacity-70"><span>{hist.min.toFixed(2)}s</span><span>{hist.max.toFixed(2)}s</span></div>
+                  )}
+
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="rounded-2xl hp-card py-2"><div className="opacity-70">hits</div><div className="text-lg font-bold" style={{color:BLUE}}>{hitCount}</div></div>
+                    <div className="rounded-2xl hp-card py-2"><div className="opacity-70">miss</div><div className="text-lg font-bold" style={{color:BLUE}}>{miss}</div></div>
+                    <div className="rounded-2xl hp-card py-2"><div className="opacity-70">score</div><div className="text-lg font-bold" style={{color:RED}}>{score}</div></div>
                   </div>
-                )}
 
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <div className="rounded-2xl hp-card py-2"><div className="opacity-70">hits</div><div className="text-lg font-bold" style={{color:BLUE}}>{hitCount}</div></div>
-                  <div className="rounded-2xl hp-card py-2"><div className="opacity-70">miss</div><div className="text-lg font-bold" style={{color:BLUE}}>{miss}</div></div>
-                  <div className="rounded-2xl hp-card py-2"><div className="opacity-70">score</div><div className="text-lg font-bold" style={{color:RED}}>{score}</div></div>
+                  <div className="mt-3 flex items-center justify-center gap-4 text-[0.95rem]">
+                    <div className="rounded-xl hp-card px-3 py-2">median: <span className="font-semibold">{medianReaction.toFixed(2)}s</span></div>
+                    <div className="rounded-xl hp-card px-3 py-2">best: <span className="font-semibold">{minReaction.toFixed(2)}s</span></div>
+                  </div>
                 </div>
-
-                <div className="mt-3 flex items-center justify-center gap-4 text-[0.95rem]">
-                  <div className="rounded-xl hp-card px-3 py-2">median: <span className="font-semibold">{medianReaction.toFixed(2)}s</span></div>
-                  <div className="rounded-xl hp-card px-3 py-2">best: <span className="font-semibold">{minReaction.toFixed(2)}s</span></div>
-                </div>
+                <div className="mt-3 text-[0.8rem] opacity-70">double click to restart</div>
               </div>
-              <div className="mt-3 text-[0.8rem] opacity-70">double click to restart</div>
             </div>
           </div>
         )}
@@ -1529,6 +1444,7 @@ export default function App(){
           </div>
         </div>
       )}
+
     </div>
   );
 }

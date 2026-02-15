@@ -1,4 +1,7 @@
 name: AI Commit Messages
+concurrency:
+  group: ai-commit-${{ github.ref }}  # 1つずつ
+  cancel-in-progress: true
 on:
   push:
     branches: [ main ]
@@ -7,9 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Rate limit wait
-      run: sleep 10
-    - name: Generate AI Commit
+    - name: Wait & AI Commit
       uses: riccardolinares/openai-commit@v0.0.1
       with:
         openai-api-key: ${{ secrets.OPENAI_API_KEY }}

@@ -25,3 +25,5 @@ dist-ssr
 *.sw?
 AGENT.md
 AGENTS.md
+
+!AGENTS.md

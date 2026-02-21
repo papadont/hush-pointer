@@ -8,6 +8,9 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_MEASUREMENT_ID?: string;
   readonly VITE_FIREBASE_APPCHECK_SITE_KEY?: string;
   readonly VITE_FIREBASE_APPCHECK_DEBUG_TOKEN?: string;
+  readonly VITE_OPENAI_API_KEY?: string;
+  readonly VITE_OPENAI_MODEL?: string;
+  readonly VITE_OPENAI_BASE_URL?: string;
 }
 
 interface ImportMeta {

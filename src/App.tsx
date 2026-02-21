@@ -134,7 +134,7 @@ function calcHitScore(targetSizePx:number,reactionSec:number|null,areaWidthPx:nu
 export default function App(){
   const[scheme,setScheme]=useState<ColorScheme>("default"),{BLUE,RED,HIST_BLUE,HIST_RED}=SCHEMES[scheme],theme=THEMES[scheme];
   const [schemeTip, setSchemeTip] = useState<"" | ColorScheme | "nord">("");
-  const areaRef=useRef<HTMLDivElement|null>(null),targetSpawnedAt=useRef(0),ignoredFirstReaction=useRef(false),hoveringTargetRef=useRef(false),prevRingActiveRef=useRef(false);
+  const areaRef=useRef<HTMLDivElement|null>(null),targetSpawnedAt=useRef(0),ignoredFirstReaction=useRef(false),hoveringTargetRef=useRef(false),prevRingActiveRef=useRef(false),ringFlashSeqRef=useRef(0);
   const[running,setRunning]=useState(false),[finished,setFinished]=useState(false),[timeLeft,setTimeLeft]=useState(DURATION);
   const[score,setScore]=useState(0),scoreRef=useRef(0),[hitCount,setHitCount]=useState(0),hitRef=useRef(0),[miss,setMiss]=useState(0),missRef=useRef(0);
   const[streak,setStreak]=useState(0),[comboFlash,setComboFlash]=useState(false),[message,setMessage]=useState("");
@@ -142,7 +142,8 @@ export default function App(){
   const[targetSize,setTargetSize]=useState(14),[target,setTarget]=useState<{x:number;y:number;color:Color}|null>(null);
   const[mode,setMode]=useState<Mode>("random"),[beepMode,setBeepMode]=useState<BeepMode>("miss");
   const[reactionSamples,setReactionSamples]=useState<ReactionSample[]>([]);
-  const[glowMode,setGlowMode]=useState(false),[hoveringTarget,setHoveringTarget]=useState(false),[ringFlashId,setRingFlashId]=useState(0);
+  const[glowMode,setGlowMode]=useState(false),[hoveringTarget,setHoveringTarget]=useState(false);
+  const[ringFlash,setRingFlash]=useState<{id:number;x:number;y:number;size:number;color:Color}|null>(null);
   const[pointerGuide,setPointerGuide]=useState(false);
 
   // --- bonus mode : HUSH·PAINTER ---
@@ -234,10 +235,12 @@ export default function App(){
   const allVisibleSelected=visibleScreenshotList.length>0&&selectedVisibleScreenshots.length===visibleScreenshotList.length;
   const timeText=useMemo(()=>`${Math.ceil(timeLeft).toString().padStart(2,"0")}s`,[timeLeft]);
   const painterScreenshotSaved=lastSavedPainterStrokes!=null;
-  const glowVars:React.CSSProperties&{"--glowBase"?:number}={"--glowBase":hoveringTarget?1.05:.82};
+  const glowVars:React.CSSProperties&{"--glowBase"?:number}={"--glowBase":hoveringTarget?1.15:.78};
   const guideGridMajor=scheme==="dark"?"rgba(122,130,144,0.30)":rgba(BLUE,.16);
   const guideGridMinor=scheme==="dark"?"rgba(103,110,123,0.18)":rgba(BLUE,.08);
   const isNord=scheme==="dark";
+  const ringDurationMs=750;
+  const ringMaxScale=7.5;
 
   const readScreenshotCache=(uid:string,kind:ScreenshotKind):CachedScreenshotPayload|null=>{
     try{
@@ -535,7 +538,6 @@ export default function App(){
 
   const ringStroke=(c:Color)=>{const base=c==="blue"?BLUE:RED;const a=scheme==="dark"?1.0:0.92;return rgba(base,a)};
   const glowBg=(c:Color)=>{const base=c==="blue"?BLUE:RED;const k=scheme==="dark"?1.45:1.0;return `radial-gradient(circle,${rgba(base,.48*k)} 0%,${rgba(base,.30*k)} 42%,${rgba(base,.16*k)} 72%,${rgba(base,0)} 100%)`};
-  const coreBg=(c:Color)=>{const base=c==="blue"?BLUE:RED;const k=scheme==="dark"?1.25:1.0;return `radial-gradient(circle,${rgba(base,.95*k)} 0%,${rgba(base,.66*k)} 35%,${rgba(base,.38*k)} 60%,${rgba(base,0)} 100%)`};
   const spawnTarget=()=>{setHoveringTarget(false);hoveringTargetRef.current=false;const area=areaRef.current;if(!area)return;const rect=area.getBoundingClientRect(),w=rect.width,h=rect.height,size=Math.max(2,Math.min(targetSize,Math.min(w,h))),x=Math.random()*Math.max(0,w-size),y=Math.random()*Math.max(0,h-size);
     const color:Color=mode==="left"?"blue":mode==="right"?"red":Math.random()<.5?"blue":"red";targetSpawnedAt.current=performance.now();setTarget({x,y,color})};
 
@@ -561,7 +563,21 @@ export default function App(){
     return()=>{el.removeEventListener("pointermove",onMove,{capture:true}as any);el.removeEventListener("pointerleave",onLeave,{capture:true}as any)}
   },[running,target,targetSize]);
 
-  useEffect(()=>{const ringActive=hoveringTarget&&!glowMode;if(ringActive&&!prevRingActiveRef.current)setRingFlashId(v=>v+1);prevRingActiveRef.current=ringActive},[hoveringTarget,glowMode]);
+  useEffect(()=>{
+    const ringActive=hoveringTarget&&!glowMode;
+    if(ringActive&&!prevRingActiveRef.current&&target){
+      ringFlashSeqRef.current+=1;
+      setRingFlash({id:ringFlashSeqRef.current,x:target.x,y:target.y,size:targetSize,color:target.color});
+    }
+    prevRingActiveRef.current=ringActive;
+  },[hoveringTarget,glowMode,target,targetSize]);
+  useEffect(()=>{
+    if(!ringFlash)return;
+    const timer=window.setTimeout(()=>{
+      setRingFlash(current=>current&&current.id===ringFlash.id?null:current);
+    },ringDurationMs);
+    return()=>window.clearTimeout(timer);
+  },[ringFlash,ringDurationMs]);
 
   const clearPainter=()=>{
     const c=painterCanvasRef.current,ctx=painterCtxRef.current;
@@ -1045,9 +1061,20 @@ export default function App(){
         .hp-switchBtn[aria-checked="true"] .hp-switchLabel{opacity:1;color: var(--hp-ink);text-shadow: 0 0 4px rgba(255,255,255,0.55), 0 0 10px rgba(255,255,255,0.25);} 
         .hp-switchBtnNordText .hp-switchLabel{color:rgba(236,239,244,0.95);opacity:0.9;text-shadow:none;}
         .hp-switchBtnNordText[aria-checked="true"] .hp-switchLabel{color:#0f172a;opacity:1;text-shadow:none;}
-        @keyframes ringRippleFade { 0% { opacity: 1; transform: translateZ(0) scale(1); } 100% { opacity: 0; transform: translateZ(0) scale(3.0); } }
-        @keyframes glowAppear { from { opacity: 0; } to { opacity: var(--glowBase); } }
-        @keyframes glowShimmer {0% { opacity: calc(var(--glowBase) * 0.55); transform: scale(3.50) translate(0px, 0px); filter: blur(2.3px); }22% { opacity: calc(var(--glowBase) * 1.25); transform: scale(3.50) translate(1px, -1px); filter: blur(2.9px); }50% { opacity: calc(var(--glowBase) * 0.50); transform: scale(3.30) translate(-1px, 1px); filter: blur(2.5px); }78% { opacity: calc(var(--glowBase) * 1.35); transform: scale(3.70) translate(2px, 0px); filter: blur(3.1px); }100% { opacity: calc(var(--glowBase) * 0.58); transform: scale(3.35) translate(-2px, -1px); filter: blur(2.6px); }}
+        @keyframes glowAppear {
+          from { opacity: 0; transform: scale(2.8); filter: blur(1.5px); }
+          60% { opacity: calc(var(--glowBase) * 0.85); filter: blur(3.2px); }
+          to { opacity: var(--glowBase); transform: scale(3.5); filter: blur(2.5px); }
+        }
+        @keyframes glowShimmer {
+          0% { opacity: calc(var(--glowBase) * 0.60); transform: scale(3.20) translate(0px, 0px); filter: blur(2.2px); }
+          18% { opacity: calc(var(--glowBase) * 1.30); transform: scale(3.65) translate(1px, -1px); filter: blur(3.4px); }
+          38% { opacity: calc(var(--glowBase) * 0.52); transform: scale(3.10) translate(-1px, 2px); filter: blur(2.0px); }
+          55% { opacity: calc(var(--glowBase) * 1.40); transform: scale(3.80) translate(2px, -1px); filter: blur(3.8px); }
+          72% { opacity: calc(var(--glowBase) * 0.58); transform: scale(3.25) translate(-2px, 1px); filter: blur(2.3px); }
+          88% { opacity: calc(var(--glowBase) * 1.20); transform: scale(3.55) translate(1px, 2px); filter: blur(3.2px); }
+          100% { opacity: calc(var(--glowBase) * 0.60); transform: scale(3.20) translate(0px, 0px); filter: blur(2.2px); }
+        }
       `}</style>
 
       <header className="w-full max-w-5xl mb-0 relative" style={{paddingLeft:0,height:26,minHeight:26,display:"flex",alignItems:"center",overflow:"hidden"}}>
@@ -1361,20 +1388,29 @@ export default function App(){
           </div>
         )}
 
+        {running&&ringFlash&&!glowMode&&(
+          <div className="pointer-events-none absolute" style={{left:ringFlash.x-((ringFlash.size*ringMaxScale-ringFlash.size)/2),top:ringFlash.y-((ringFlash.size*ringMaxScale-ringFlash.size)/2),width:ringFlash.size*ringMaxScale,height:ringFlash.size*ringMaxScale,zIndex:18,contain:"paint"}}>
+            <svg width="100%" height="100%" viewBox={`0 0 ${ringFlash.size*ringMaxScale} ${ringFlash.size*ringMaxScale}`} style={{overflow:"visible"}}>
+              <circle cx={(ringFlash.size*ringMaxScale)/2} cy={(ringFlash.size*ringMaxScale)/2} r={ringFlash.size/2} fill="none" stroke={ringStroke(ringFlash.color)} strokeWidth={0.9} vectorEffect="non-scaling-stroke" style={{filter:`drop-shadow(0 0 1.2px ${ringStroke(ringFlash.color)})`}}>
+                <animate attributeName="r" from={ringFlash.size/2} to={(ringFlash.size/2)*ringMaxScale} dur={`${ringDurationMs}ms`} fill="freeze" calcMode="spline" keyTimes="0;0.18;0.72;1" keySplines="0.12 0 0.3 0.6;0.3 0.4 0.5 1;0.42 0.8 0.6 1" />
+                <animate attributeName="opacity" values="0;0.90;0.80;0.40;0.10;0" keyTimes="0;0.05;0.42;0.74;0.92;1" dur={`${ringDurationMs}ms`} fill="freeze" calcMode="spline" keySplines="0 0 0.1 1;0.1 0 0.3 1;0.2 0 0.5 1;0.3 0 0.6 1;0.4 0 0.8 1" />
+                <animate attributeName="stroke-width" values="0.9;0.72;0.38;0.12" keyTimes="0;0.28;0.68;1" dur={`${ringDurationMs}ms`} fill="freeze" calcMode="spline" keySplines="0.2 0 0.5 1;0.3 0 0.6 1;0.4 0 0.8 1" />
+              </circle>
+              <circle cx={(ringFlash.size*ringMaxScale)/2} cy={(ringFlash.size*ringMaxScale)/2} r={ringFlash.size/2} fill="none" stroke={ringStroke(ringFlash.color)} strokeWidth={0.5} vectorEffect="non-scaling-stroke" opacity={0} style={{filter:`drop-shadow(0 0 0.6px ${ringStroke(ringFlash.color)})`}}>
+                <animate attributeName="r" from={ringFlash.size/2} to={(ringFlash.size/2)*(ringMaxScale*0.55)} begin={`${ringDurationMs*0.12}ms`} dur={`${ringDurationMs*0.78}ms`} fill="freeze" calcMode="spline" keyTimes="0;0.22;1" keySplines="0.08 0 0.28 0.7;0.35 0.5 0.55 1" />
+                <animate attributeName="opacity" values="0;0.55;0.38;0.12;0" keyTimes="0;0.06;0.38;0.72;1" begin={`${ringDurationMs*0.12}ms`} dur={`${ringDurationMs*0.78}ms`} fill="freeze" calcMode="spline" keySplines="0 0 0.1 1;0.15 0 0.4 1;0.3 0 0.65 1;0.4 0 0.85 1" />
+                <animate attributeName="stroke-width" values="0.5;0.32;0.10" keyTimes="0;0.45;1" begin={`${ringDurationMs*0.12}ms`} dur={`${ringDurationMs*0.78}ms`} fill="freeze" calcMode="spline" keySplines="0.25 0 0.55 1;0.4 0 0.75 1" />
+              </circle>
+            </svg>
+          </div>
+        )}
+
         {running&&target&&(
           <div className="absolute" style={{left:target.x,top:target.y,width:targetSize,height:targetSize}}>
-            {hoveringTarget&&!glowMode&&(
-              <div key={ringFlashId} className="pointer-events-none absolute" style={{left:-2,top:-2,width:targetSize+4,height:targetSize+4,zIndex:18,transformOrigin:"50% 50%",animation:"ringRippleFade 320ms ease-out forwards",willChange:"transform, opacity",backfaceVisibility:"hidden",contain:"paint"}}>
-                <div className="absolute inset-0" style={{borderRadius:"50%",boxSizing:"border-box",border:`0.6px solid ${ringStroke(target.color)}`,transform:"translateZ(0)",backfaceVisibility:"hidden"}} />
-              </div>
-            )}
             {glowMode&&(
-              <div className="absolute inset-0 rounded-full pointer-events-none" style={{zIndex:5,background:glowBg(target.color),opacity:1,transformOrigin:"50% 50%",...glowVars,animation:"glowAppear 360ms ease-out forwards, glowShimmer 9200ms ease-in-out 360ms infinite"}} />
+              <div className="absolute inset-0 rounded-full pointer-events-none" style={{zIndex:5,background:glowBg(target.color),opacity:1,transformOrigin:"50% 50%",...glowVars,animation:"glowAppear 480ms cubic-bezier(0.22, 1, 0.36, 1) forwards, glowShimmer 11500ms ease-in-out 480ms infinite"}} />
             )}
-            <div className={`absolute inset-0 rounded-full transition-transform ${comboFlash?"scale-125":""}`} onMouseDown={onTargetMouseDown} style={{willChange:"transform, opacity, filter",zIndex:10,cursor:"crosshair",backgroundColor:target.color==="blue"?BLUE:RED,opacity:glowMode?(hoveringTarget?1:.04):1,filter:glowMode?(hoveringTarget?"blur(0.9px)":"blur(0.45px)"):"none",transition:"opacity 180ms ease, filter 500ms cubic-bezier(0.22, 1, 0.36, 1)"}} />
-            {glowMode&&(
-              <div className="absolute rounded-full pointer-events-none" style={{zIndex:15,width:hoveringTarget?targetSize:Math.max(2,Math.round(targetSize*.22)),height:hoveringTarget?targetSize:Math.max(2,Math.round(targetSize*.22)),left:"50%",top:"50%",background:coreBg(target.color),opacity:hoveringTarget?.35:1,transform:"translate(-50%, -50%)",transition:"width 9000ms cubic-bezier(0.22, 1, 0.36, 1), height 9000ms cubic-bezier(0.22, 1, 0.36, 1), opacity 3200ms ease-out"}} />
-            )}
+            <div className="absolute inset-0 rounded-full" onMouseDown={onTargetMouseDown} style={{willChange:"transform, opacity, filter",zIndex:10,cursor:"crosshair",backgroundColor:target.color==="blue"?BLUE:RED,transform:(glowMode||comboFlash)?`scale(${(comboFlash?1.25:1)*(glowMode?(hoveringTarget?1.0:0.16):1)})`:undefined,opacity:glowMode?(hoveringTarget?0.96:0.82):1,filter:glowMode?(hoveringTarget?"blur(0.8px)":"blur(0px)"):"none",transition:glowMode?(hoveringTarget?"transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease-out, filter 300ms ease":"transform 500ms cubic-bezier(0.22, 1, 0.36, 1), opacity 350ms ease-in, filter 400ms ease"):undefined}} />
           </div>
         )}
       </div>

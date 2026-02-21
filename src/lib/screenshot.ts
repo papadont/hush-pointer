@@ -3,6 +3,16 @@ import html2canvas from "html2canvas";
 type ScreenshotRenderOptions = {
   backgroundColor?: string | null;
   mode?: "auto" | "svg-first" | "svg-only";
+  scale?: number;
+  exportScale?: number;
+};
+
+type InlineFontReport = {
+  fontFaceBlockCount: number;
+  discoveredUrlCount: number;
+  fetchSuccessCount: number;
+  fetchFailureCount: number;
+  replacementCount: number;
 };
 
 function isBlankishCapture(canvas: HTMLCanvasElement) {
@@ -74,6 +84,96 @@ function readCssText() {
   return cssText;
 }
 
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error ?? new Error("FileReader failed"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function inlineFonts(cssText: string): Promise<string> {
+  const report: InlineFontReport = {
+    fontFaceBlockCount: 0,
+    discoveredUrlCount: 0,
+    fetchSuccessCount: 0,
+    fetchFailureCount: 0,
+    replacementCount: 0
+  };
+  const fontFaceBlocks = cssText.match(/@font-face\s*\{[\s\S]*?\}/g) ?? [];
+  report.fontFaceBlockCount = fontFaceBlocks.length;
+  if (!fontFaceBlocks.length) {
+    (window as any).__hpLastInlineFontReport = report;
+    return cssText;
+  }
+
+  const urlPattern = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
+  const replacements = new Map<string, string>();
+  const targets = new Map<string, string>(); // rawUrl -> absoluteUrl
+
+  for (const block of fontFaceBlocks) {
+    urlPattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = urlPattern.exec(block)) !== null) {
+      const rawUrl = (match[2] || "").trim();
+      if (!rawUrl || rawUrl.startsWith("data:")) continue;
+      try {
+        const absoluteUrl = new URL(rawUrl, document.baseURI).href;
+        targets.set(rawUrl, absoluteUrl);
+      } catch {
+        // ignore malformed url
+      }
+    }
+  }
+  report.discoveredUrlCount = targets.size;
+
+  if (!targets.size) {
+    (window as any).__hpLastInlineFontReport = report;
+    return cssText;
+  }
+
+  await Promise.all(
+    Array.from(targets.entries()).map(async ([rawUrl, absoluteUrl]) => {
+      try {
+        const res = await fetch(absoluteUrl);
+        if (!res.ok) {
+          report.fetchFailureCount += 1;
+          return;
+        }
+        const dataUrl = await blobToDataUrl(await res.blob());
+        if (!dataUrl) {
+          report.fetchFailureCount += 1;
+          return;
+        }
+        replacements.set(rawUrl, dataUrl);
+        replacements.set(absoluteUrl, dataUrl);
+        report.fetchSuccessCount += 1;
+      } catch {
+        // keep original font url on failure
+        report.fetchFailureCount += 1;
+      }
+    })
+  );
+
+  if (!replacements.size) {
+    (window as any).__hpLastInlineFontReport = report;
+    return cssText;
+  }
+
+  const replacedCss = cssText.replace(
+    /url\(\s*(['"]?)([^'")]+)\1\s*\)/g,
+    (full, _quote, url) => {
+      const key = String(url || "").trim();
+      const dataUrl = replacements.get(key);
+      if (dataUrl) report.replacementCount += 1;
+      return dataUrl ? `url("${dataUrl}")` : full;
+    }
+  );
+  (window as any).__hpLastInlineFontReport = report;
+  return replacedCss;
+}
+
 function copyCustomProperties(source: HTMLElement, target: HTMLElement) {
   const computed = window.getComputedStyle(source);
   for (const name of Array.from(computed)) {
@@ -84,18 +184,63 @@ function copyCustomProperties(source: HTMLElement, target: HTMLElement) {
   }
 }
 
-async function renderViaSvg(node: HTMLElement) {
-  const rect = node.getBoundingClientRect();
-  const width = Math.max(1, Math.ceil(rect.width));
-  const height = Math.max(1, Math.ceil(rect.height));
+function copyComputedTypography(source: HTMLElement, target: HTMLElement) {
+  const computed = window.getComputedStyle(source);
+  const props = [
+    "font-family",
+    "font-size",
+    "font-weight",
+    "font-style",
+    "font-stretch",
+    "line-height",
+    "letter-spacing",
+    "word-spacing",
+    "text-transform",
+    "text-rendering",
+    "-webkit-font-smoothing"
+  ];
+  for (const prop of props) {
+    const value = computed.getPropertyValue(prop);
+    if (!value) continue;
+    target.style.setProperty(prop, value);
+  }
+}
+
+function escapeXmlAttr(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function renderViaSvg(node: HTMLElement, scale = 1) {
+  const width = Math.max(
+    1,
+    node.offsetWidth || Math.round(node.getBoundingClientRect().width)
+  );
+  const height = Math.max(
+    1,
+    node.offsetHeight || Math.round(node.getBoundingClientRect().height)
+  );
+  const pixelScale = Math.max(1, scale);
   const clone = node.cloneNode(true) as HTMLElement;
   copyCustomProperties(node, clone);
-  const cssText = readCssText();
+  copyComputedTypography(node, clone);
+  let cssText = readCssText();
+  cssText = await inlineFonts(cssText);
+  try {
+    console.info("[screenshot:inlineFonts]", (window as any).__hpLastInlineFontReport);
+  } catch {
+    // no-op
+  }
   const serialized = new XMLSerializer().serializeToString(clone);
+  const rootTypography = escapeXmlAttr(clone.getAttribute("style") ?? "");
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
       <foreignObject width="100%" height="100%">
-        <div xmlns="http://www.w3.org/1999/xhtml">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="${rootTypography}">
           <style><![CDATA[
 ${cssText}
           ]]></style>
@@ -113,35 +258,53 @@ ${cssText}
   });
 
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = Math.max(1, Math.ceil(width * pixelScale));
+  canvas.height = Math.max(1, Math.ceil(height * pixelScale));
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("2D context unavailable");
-  ctx.drawImage(image, 0, 0);
+  ctx.setTransform(pixelScale, 0, 0, pixelScale, 0, 0);
+  ctx.drawImage(image, 0, 0, width, height);
   return canvas;
+}
+
+function toPngDataUrlWithExportScale(canvas: HTMLCanvasElement, exportScale = 1) {
+  const ratio = Math.max(0.1, Math.min(1, exportScale));
+  if (ratio >= 0.999) return canvas.toDataURL("image/png");
+  const width = Math.max(1, Math.round(canvas.width * ratio));
+  const height = Math.max(1, Math.round(canvas.height * ratio));
+  const resized = document.createElement("canvas");
+  resized.width = width;
+  resized.height = height;
+  const ctx = resized.getContext("2d");
+  if (!ctx) return canvas.toDataURL("image/png");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(canvas, 0, 0, width, height);
+  return resized.toDataURL("image/png");
 }
 
 export async function elementToPngDataUrl(
   node: HTMLElement,
   options: ScreenshotRenderOptions = {}
 ) {
-  const scale = Math.max(2, window.devicePixelRatio || 1);
+  const scale = Math.max(2, (options.scale ?? window.devicePixelRatio) || 1);
+  const exportScale = options.exportScale ?? 1;
   const backgroundColor = options.backgroundColor ?? null;
   const mode = options.mode ?? "auto";
   if (mode === "svg-only") {
-    const canvas = await renderViaSvg(node);
+    const canvas = await renderViaSvg(node, scale);
     if (isBlankishCapture(canvas)) {
       throw new Error("blank-ish capture on svg renderer");
     }
-    return canvas.toDataURL("image/png");
+    return toPngDataUrlWithExportScale(canvas, exportScale);
   }
   if (mode === "svg-first") {
     try {
-      const canvas = await renderViaSvg(node);
+      const canvas = await renderViaSvg(node, scale);
       if (isBlankishCapture(canvas)) {
         throw new Error("blank-ish capture on svg renderer");
       }
-      return canvas.toDataURL("image/png");
+      return toPngDataUrlWithExportScale(canvas, exportScale);
     } catch {
       // fallback to html2canvas flow
     }
@@ -157,7 +320,7 @@ export async function elementToPngDataUrl(
     if (isBlankishCapture(canvas)) {
       throw new Error("blank-ish capture on html2canvas (foreignObjectRendering=false)");
     }
-    return canvas.toDataURL("image/png");
+    return toPngDataUrlWithExportScale(canvas, exportScale);
   } catch (firstError) {
     try {
       const canvas = await html2canvas(node, {
@@ -170,14 +333,14 @@ export async function elementToPngDataUrl(
       if (isBlankishCapture(canvas)) {
         throw new Error("blank-ish capture on html2canvas (foreignObjectRendering=true)");
       }
-      return canvas.toDataURL("image/png");
+      return toPngDataUrlWithExportScale(canvas, exportScale);
     } catch (secondError) {
       try {
-        const canvas = await renderViaSvg(node);
+        const canvas = await renderViaSvg(node, scale);
         if (isBlankishCapture(canvas)) {
           throw new Error("blank-ish capture on svg renderer");
         }
-        return canvas.toDataURL("image/png");
+        return toPngDataUrlWithExportScale(canvas, exportScale);
       } catch (thirdError) {
         const first = firstError instanceof Error ? firstError.message : String(firstError);
         const second = secondError instanceof Error ? secondError.message : String(secondError);

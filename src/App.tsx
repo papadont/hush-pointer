@@ -20,6 +20,7 @@ const DURATION=60,BEEP={HIT:480,MISS:140,FINISH:700}; // game length (sec) & bee
 const SCREENSHOT_PAGE_SIZE=24;
 const SCREENSHOT_CACHE_TTL_MS=5*60*1000;
 const SCREENSHOT_CACHE_PREFIX="hp:screenshot-cache:";
+const SCREENSHOT_EXPORT_SCALE=0.55;
 const SCHEMES:Record<ColorScheme,{BLUE:string;RED:string;HIST_BLUE:string;HIST_RED:string}>={default:{BLUE:"#5878a6",RED:"#e48b9e",HIST_BLUE:"rgba(88,120,166,0.78)",HIST_RED:"rgba(224,123,147,0.78)"},warm:{BLUE:"#6f8f7a",RED:"#e07b6a",HIST_BLUE:"rgba(111,143,122,0.78)",HIST_RED:"rgba(224,123,106,0.78)"},moss:{BLUE:"#3f8f6f",RED:"#d07a8a",HIST_BLUE:"rgba(63,143,111,0.78)",HIST_RED:"rgba(208,122,138,0.78)"},dusk:{BLUE:"#5f6b7a",RED:"#c3a8ad",HIST_BLUE:"rgba(95,107,122,0.78)",HIST_RED:"rgba(195,168,173,0.78)"},dark:{BLUE:"#81a1c1",RED:"#bf616a",HIST_BLUE:"rgba(129,161,193,0.78)",HIST_RED:"rgba(191,97,106,0.78)"}};
 const THEMES:any={default:{appTop:"#fbfaf8",appBottom:"#f6f2ec",area:"#fbfaf8",panel:"rgba(244,242,238,0.92)",msg:"rgba(244,242,238,0.92)",finish:"rgba(244,242,238,0.96)",card:"rgba(255,255,255,0.72)",ink:"#0f172a",inkSoft:"rgba(71,85,105,0.92)",border:"rgba(148,163,184,0.52)",shadow:"0 0.5px 1.5px rgba(90,80,60,0.06)"},warm:{appTop:"#fff8f1",appBottom:"#f5ece2",area:"#fffaf4",panel:"rgba(248,238,229,0.94)",msg:"rgba(248,238,229,0.94)",finish:"rgba(248,238,229,0.97)",card:"rgba(255,252,246,0.76)",ink:"#241a13",inkSoft:"rgba(98,72,56,0.92)",border:"rgba(177,148,120,0.50)",shadow:"0 0.75px 1.75px rgba(120,85,55,0.10)"},moss:{appTop:"#f6fbf7",appBottom:"#eef4f0",area:"#f9fdfb",panel:"rgba(236,244,239,0.94)",msg:"rgba(236,244,239,0.94)",finish:"rgba(236,244,239,0.97)",card:"rgba(255,255,255,0.74)",ink:"#0d1a14",inkSoft:"rgba(38,70,55,0.90)",border:"rgba(92,124,110,0.48)",shadow:"0 0.75px 1.75px rgba(40,70,55,0.10)"},dusk:{appTop:"#f2f3f5",appBottom:"#e6e8eb",area:"#f4f5f7",panel:"rgba(230,232,235,0.92)",msg:"rgba(230,232,235,0.92)",finish:"rgba(230,232,235,0.96)",card:"rgba(255,255,255,0.68)",ink:"#1f2933",inkSoft:"rgba(55,65,81,0.88)",border:"rgba(120,130,140,0.42)",shadow:"0 0.75px 1.75px rgba(60,65,70,0.10)"},dark:{appTop:"#313846",appBottom:"#2f3542",area:"#2e3440",panel:"rgba(46,52,64,0.94)",msg:"rgba(46,52,64,0.94)",finish:"rgba(46,52,64,0.97)",card:"rgba(59,66,82,0.84)",ink:"#eceff4",inkSoft:"rgba(216,222,233,0.85)",border:"rgba(76,86,106,0.58)",shadow:"0 1px 3px rgba(0,0,0,0.48)"}};
 
@@ -920,7 +921,7 @@ export default function App(){
       const user=await ensureAnonymousUser();
       if(!user?.uid) throw new Error("anonymous auth is not ready");
       await new Promise<void>((resolve)=>window.requestAnimationFrame(()=>resolve()));
-      const base64=await elementToPngDataUrl(card,{mode:"svg-first"});
+      const base64=await elementToPngDataUrl(card,{mode:"svg-first",scale:Math.max(2,window.devicePixelRatio||1),exportScale:SCREENSHOT_EXPORT_SCALE});
       await saveScreenshot("finish",base64,{
         uid:user.uid,
         gameAreaPixels:getGameAreaPixels(),

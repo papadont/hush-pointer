@@ -1067,13 +1067,16 @@ export default function App(){
           to { opacity: var(--glowBase); transform: scale(3.5); filter: blur(2.5px); }
         }
         @keyframes glowShimmer {
-          0% { opacity: calc(var(--glowBase) * 0.60); transform: scale(3.20) translate(0px, 0px); filter: blur(2.2px); }
-          18% { opacity: calc(var(--glowBase) * 1.30); transform: scale(3.65) translate(1px, -1px); filter: blur(3.4px); }
-          38% { opacity: calc(var(--glowBase) * 0.52); transform: scale(3.10) translate(-1px, 2px); filter: blur(2.0px); }
-          55% { opacity: calc(var(--glowBase) * 1.40); transform: scale(3.80) translate(2px, -1px); filter: blur(3.8px); }
-          72% { opacity: calc(var(--glowBase) * 0.58); transform: scale(3.25) translate(-2px, 1px); filter: blur(2.3px); }
-          88% { opacity: calc(var(--glowBase) * 1.20); transform: scale(3.55) translate(1px, 2px); filter: blur(3.2px); }
-          100% { opacity: calc(var(--glowBase) * 0.60); transform: scale(3.20) translate(0px, 0px); filter: blur(2.2px); }
+          0% { opacity: calc(var(--glowBase) * 0.55); transform: scale(3.10) translate(0px, 0px) rotate(0deg); filter: blur(2.0px); }
+          8% { opacity: calc(var(--glowBase) * 1.45); transform: scale(4.00) translate(3px, -4px) rotate(6deg); filter: blur(4.2px); }
+          19% { opacity: calc(var(--glowBase) * 0.48); transform: scale(2.90) translate(-4px, 2px) rotate(-8deg); filter: blur(1.8px); }
+          31% { opacity: calc(var(--glowBase) * 1.55); transform: scale(4.20) translate(2px, 4px) rotate(12deg); filter: blur(4.8px); }
+          44% { opacity: calc(var(--glowBase) * 0.42); transform: scale(2.80) translate(-3px, -3px) rotate(-5deg); filter: blur(1.6px); }
+          56% { opacity: calc(var(--glowBase) * 1.50); transform: scale(4.10) translate(4px, -2px) rotate(9deg); filter: blur(4.5px); }
+          67% { opacity: calc(var(--glowBase) * 0.50); transform: scale(3.00) translate(-2px, 3px) rotate(-10deg); filter: blur(2.2px); }
+          79% { opacity: calc(var(--glowBase) * 1.40); transform: scale(3.90) translate(3px, 2px) rotate(7deg); filter: blur(4.0px); }
+          91% { opacity: calc(var(--glowBase) * 0.46); transform: scale(2.85) translate(-4px, -2px) rotate(-6deg); filter: blur(1.9px); }
+          100% { opacity: calc(var(--glowBase) * 0.55); transform: scale(3.10) translate(0px, 0px) rotate(0deg); filter: blur(2.0px); }
         }
       `}</style>
 

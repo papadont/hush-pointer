@@ -1,3 +1,32 @@
+/**
+ * ============================================================
+ * Hush Pointer: File Header
+ * ============================================================
+ * @file firebaseConfig.ts
+ * @module hush-pointer/firebase
+ * @summary Firebase初期化と匿名認証ユーティリティ
+ *
+ * @responsibilities
+ * - Firebase App/Firestore/Authを初期化する
+ * - 匿名ユーザーを確保して返す
+ *
+ * @invariants
+ * - 必須env未設定時は初期化を中断する
+ *
+ * @sideEffects
+ * - Firebase app/auth/firestore initialization
+ * - Anonymous sign-in
+ *
+ * @dependencies
+ * - firebase/app
+ * - firebase/app-check
+ * - firebase/auth
+ * - firebase/firestore
+ *
+ * @updated 2026-02-27
+ * @changelog ヘッダコメントを追加
+ * ============================================================
+ */
 import { initializeApp } from "firebase/app";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 import { getAuth, signInAnonymously, type User } from "firebase/auth";

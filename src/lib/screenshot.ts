@@ -1,3 +1,29 @@
+/**
+ * ============================================================
+ * Hush Pointer: File Header
+ * ============================================================
+ * @file screenshot.ts
+ * @module hush-pointer/screenshot
+ * @summary DOM要素のスクショ生成とフォント埋め込み補助
+ *
+ * @responsibilities
+ * - html2canvasベースの画像化を提供する
+ * - SVG/フォント周りの失敗時フォールバックを扱う
+ *
+ * @invariants
+ * - 出力はPNG data URL形式で返す
+ *
+ * @sideEffects
+ * - DOM cloning/render
+ * - Font fetch for inline replacement
+ *
+ * @dependencies
+ * - html2canvas
+ *
+ * @updated 2026-02-27
+ * @changelog ヘッダコメントを追加
+ * ============================================================
+ */
 import html2canvas from "html2canvas";
 
 type ScreenshotRenderOptions = {

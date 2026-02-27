@@ -1,4 +1,31 @@
 #!/usr/bin/env node
+/**
+ * ============================================================
+ * Hush Pointer: File Header
+ * ============================================================
+ * @file migrate-screenshot-uid.mjs
+ * @module hush-pointer/scripts
+ * @summary screenshotsのuidを一括移行する管理スクリプト
+ *
+ * @responsibilities
+ * - 対象ドキュメントを検索してuidを更新する
+ * - dry-runと安全確認オプションを提供する
+ *
+ * @invariants
+ * - 実更新は--force指定時のみ実行する
+ *
+ * @sideEffects
+ * - Firestore batch updates
+ * - Console output
+ *
+ * @dependencies
+ * - firebase-admin/app
+ * - firebase-admin/firestore
+ *
+ * @updated 2026-02-27
+ * @changelog ヘッダコメントを追加
+ * ============================================================
+ */
 import process from "node:process";
 import { initializeApp, applicationDefault, getApps } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";

@@ -1,3 +1,34 @@
+/**
+ * ============================================================
+ * Hush Pointer: File Header
+ * ============================================================
+ * @file App.tsx
+ * @module hush-pointer/ui
+ * @summary メインUI、ゲーム進行、スクショ保存フローを管理
+ *
+ * @responsibilities
+ * - ゲーム状態と描画モード状態を保持する
+ * - saveボタンの有効判定を制御する
+ *
+ * @invariants
+ * - SAVEは未保存変更があるときのみ有効
+ * - finishとpainterの保存状態は分離する
+ *
+ * @sideEffects
+ * - localStorage read/write
+ * - Firebase screenshots write/delete
+ * - AudioContext beep playback
+ *
+ * @dependencies
+ * - react
+ * - ./lib/firebaseConfig
+ * - ./lib/firestoreService
+ * - ./lib/screenshot
+ *
+ * @updated 2026-02-27
+ * @changelog ヘッダコメントを追加
+ * ============================================================
+ */
 import React,{useEffect,useMemo,useRef,useState}from"react";
 import { ensureAnonymousUser } from "./lib/firebaseConfig";
 import {

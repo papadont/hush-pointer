@@ -1,3 +1,29 @@
+/**
+ * ============================================================
+ * Hush Pointer: File Header
+ * ============================================================
+ * @file firestoreService.ts
+ * @module hush-pointer/firestore
+ * @summary screenshotsコレクションのCRUDとページング処理
+ *
+ * @responsibilities
+ * - スクショ保存/一覧取得/削除を提供する
+ * - FirestoreドキュメントをUI向け型へ変換する
+ *
+ * @invariants
+ * - 取得結果はtimestamp降順で扱う
+ *
+ * @sideEffects
+ * - Firestore read/write/delete
+ *
+ * @dependencies
+ * - firebase/firestore
+ * - ./firebaseConfig
+ *
+ * @updated 2026-02-27
+ * @changelog ヘッダコメントを追加
+ * ============================================================
+ */
 import {
   addDoc,
   collection,

@@ -165,7 +165,9 @@ export default function App(){
   const[savingFinish,setSavingFinish]=useState(false);
   const[savingPainter,setSavingPainter]=useState(false);
   const[finishScreenshotSaved,setFinishScreenshotSaved]=useState(false);
+  const[lastSavedFinishScheme,setLastSavedFinishScheme]=useState<ColorScheme|null>(null);
   const[lastSavedPainterStrokes,setLastSavedPainterStrokes]=useState<number|null>(null);
+  const[lastSavedPainterScheme,setLastSavedPainterScheme]=useState<ColorScheme|null>(null);
   const[userUid,setUserUid]=useState("");
   const[screenshotList,setScreenshotList]=useState<ScreenshotRecord[]>([]);
   const[screenshotLoading,setScreenshotLoading]=useState(false);
@@ -234,7 +236,8 @@ export default function App(){
   );
   const allVisibleSelected=visibleScreenshotList.length>0&&selectedVisibleScreenshots.length===visibleScreenshotList.length;
   const timeText=useMemo(()=>`${Math.ceil(timeLeft).toString().padStart(2,"0")}s`,[timeLeft]);
-  const painterScreenshotSaved=lastSavedPainterStrokes!=null;
+  const finishScreenshotSavedForCurrentScheme=finishScreenshotSaved&&lastSavedFinishScheme===scheme;
+  const painterScreenshotSaved=lastSavedPainterStrokes!=null&&lastSavedPainterScheme===scheme;
   const glowVars:React.CSSProperties&{"--glowBase"?:number}={"--glowBase":hoveringTarget?1.15:.78};
   const guideGridMajor=scheme==="dark"?"rgba(122,130,144,0.30)":rgba(BLUE,.16);
   const guideGridMinor=scheme==="dark"?"rgba(103,110,123,0.18)":rgba(BLUE,.08);
@@ -533,7 +536,10 @@ export default function App(){
   },[screenshotKindForMode]);
   useEffect(()=>{
     if(lastSavedPainterStrokes==null)return;
-    if(paintStrokes!==lastSavedPainterStrokes)setLastSavedPainterStrokes(null);
+    if(paintStrokes!==lastSavedPainterStrokes){
+      setLastSavedPainterStrokes(null);
+      setLastSavedPainterScheme(null);
+    }
   },[paintStrokes,lastSavedPainterStrokes]);
 
   const ringStroke=(c:Color)=>{const base=c==="blue"?BLUE:RED;const a=scheme==="dark"?1.0:0.92;return rgba(base,a)};
@@ -541,7 +547,7 @@ export default function App(){
   const spawnTarget=()=>{setHoveringTarget(false);hoveringTargetRef.current=false;const area=areaRef.current;if(!area)return;const rect=area.getBoundingClientRect(),w=rect.width,h=rect.height,size=Math.max(2,Math.min(targetSize,Math.min(w,h))),x=Math.random()*Math.max(0,w-size),y=Math.random()*Math.max(0,h-size);
     const color:Color=mode==="left"?"blue":mode==="right"?"red":Math.random()<.5?"blue":"red";targetSpawnedAt.current=performance.now();setTarget({x,y,color})};
 
-  const startGame=()=>{setShowScreenshotList(false);setComboFlash(false);setHitCount(0);hitRef.current=0;setScore(0);scoreRef.current=0;setMiss(0);missRef.current=0;setStreak(0);setTimeLeft(DURATION);setRunning(true);setFinished(false);setMessage("");setPerfectBonus(0);perfectBonusRef.current=0;setShowPerfectBonus(false);setReactionSamples([]);setFinishScreenshotSaved(false);ignoredFirstReaction.current=false;spawnTarget()};
+  const startGame=()=>{setShowScreenshotList(false);setComboFlash(false);setHitCount(0);hitRef.current=0;setScore(0);scoreRef.current=0;setMiss(0);missRef.current=0;setStreak(0);setTimeLeft(DURATION);setRunning(true);setFinished(false);setMessage("");setPerfectBonus(0);perfectBonusRef.current=0;setShowPerfectBonus(false);setReactionSamples([]);setFinishScreenshotSaved(false);setLastSavedFinishScheme(null);ignoredFirstReaction.current=false;spawnTarget()};
 
   const endGame=()=>{const missNow=missRef.current,hitNow=hitRef.current,scoreNow=scoreRef.current;
     let finalScore=scoreNow;
@@ -959,6 +965,7 @@ export default function App(){
         invalidateScreenshotCache(user.uid,"finish");
       }
       setFinishScreenshotSaved(true);
+      setLastSavedFinishScheme(scheme);
       flashMessage("finish screenshot saved");
     }catch(error){
       console.error("Failed to save finish screenshot",error);
@@ -1012,6 +1019,7 @@ export default function App(){
         invalidateScreenshotCache(user.uid,"painter");
       }
       setLastSavedPainterStrokes(strokesAtSave);
+      setLastSavedPainterScheme(scheme);
       flashMessage("painter screenshot saved");
     }catch(error){
       console.error("Failed to save painter screenshot",error);
@@ -1111,7 +1119,7 @@ export default function App(){
         <div className={`hp-panel ${isNord?"hp-panelNord":""} rounded-2xl p-2.5 flex items-center justify-between min-h-[4.5rem]`}><div><div className="opacity-70">timeleft</div><div className="text-lg font-bold">{timeText}</div></div>
           <div className="flex items-center gap-2">
             {extraMode&&showPainterSaveButton&&paintStrokes>0&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={savePainterScreenshot} disabled={savingPainter||painterScreenshotSaved}>{savingPainter?"SAVING":(painterScreenshotSaved?"SAVED":"SAVE")}</button>}
-            {!extraMode&&finished&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={saveFinishCardScreenshot} disabled={savingFinish||finishScreenshotSaved}>{savingFinish?"SAVING":(finishScreenshotSaved?"SAVED":"SAVE")}</button>}
+            {!extraMode&&finished&&<button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:BLUE,boxShadow:theme.shadow}} onClick={saveFinishCardScreenshot} disabled={savingFinish||finishScreenshotSavedForCurrentScheme}>{savingFinish?"SAVING":(finishScreenshotSavedForCurrentScheme?"SAVED":"SAVE")}</button>}
             <button className="px-3 py-1.5 rounded-xl text-sm text-white font-semibold disabled:opacity-50" style={{background:extraMode?RED:BLUE,boxShadow:theme.shadow}} onClick={()=>{extraMode?clearPainter():startGame()}} disabled={running&&(!extraMode)}> {extraMode?"CLEAR":"START"} </button>
           </div>
         </div>
@@ -1401,7 +1409,7 @@ export default function App(){
               </circle>
               <circle cx={(ringFlash.size*ringMaxScale)/2} cy={(ringFlash.size*ringMaxScale)/2} r={ringFlash.size/2} fill="none" stroke={ringStroke(ringFlash.color)} strokeWidth={0.5} vectorEffect="non-scaling-stroke" opacity={0} style={{filter:`drop-shadow(0 0 0.6px ${ringStroke(ringFlash.color)})`}}>
                 <animate attributeName="r" from={ringFlash.size/2} to={(ringFlash.size/2)*(ringMaxScale*0.8)} begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keyTimes="0;0.22;1" keySplines="0.52 0 0.66 0.80;0.35 0.5 0.55 1" />
-                <animate attributeName="opacity" values="0;0.55;0.38;0.12;0" keyTimes="0;0.06;0.38;0.72;1" begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keySplines="0 0 0.1 1;0.15 0 0.4 1;0.3 0 0.65 1;0.4 0 0.85 1" />
+                <animate attributeName="opacity" values="0;0.78;0.52;0.22;0" keyTimes="0;0.04;0.34;0.72;1" begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keySplines="0 0 0.1 1;0.15 0 0.4 1;0.3 0 0.65 1;0.4 0 0.85 1" />
                 <animate attributeName="stroke-width" values="0.5;0.32;0.10" keyTimes="0;0.45;1" begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keySplines="0.25 0 0.55 1;0.4 0 0.75 1" />
               </circle>
             </svg>

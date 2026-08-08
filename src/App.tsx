@@ -274,7 +274,8 @@ export default function App(){
   const guideGridMinor=scheme==="dark"?"rgba(103,110,123,0.18)":rgba(BLUE,.08);
   const isNord=scheme==="dark";
   const ringDurationMs=750;
-  const ringMaxScale=7.5;
+  const outerRingDurationMs=840;
+  const ringMaxScale=9.5;
 
   const readScreenshotCache=(uid:string,kind:ScreenshotKind):CachedScreenshotPayload|null=>{
     try{
@@ -612,9 +613,9 @@ export default function App(){
     if(!ringFlash)return;
     const timer=window.setTimeout(()=>{
       setRingFlash(current=>current&&current.id===ringFlash.id?null:current);
-    },Math.ceil(ringDurationMs*1.12));
+    },Math.ceil(Math.max(ringDurationMs,outerRingDurationMs)*1.12));
     return()=>window.clearTimeout(timer);
-  },[ringFlash,ringDurationMs]);
+  },[ringFlash,ringDurationMs,outerRingDurationMs]);
 
   const clearPainter=()=>{
     const c=painterCanvasRef.current,ctx=painterCtxRef.current;
@@ -1434,14 +1435,15 @@ export default function App(){
           <div className="pointer-events-none absolute" style={{left:ringFlash.x-((ringFlash.size*ringMaxScale-ringFlash.size)/2),top:ringFlash.y-((ringFlash.size*ringMaxScale-ringFlash.size)/2),width:ringFlash.size*ringMaxScale,height:ringFlash.size*ringMaxScale,zIndex:18,contain:"paint"}}>
             <svg width="100%" height="100%" viewBox={`0 0 ${ringFlash.size*ringMaxScale} ${ringFlash.size*ringMaxScale}`} style={{overflow:"visible"}}>
               <circle cx={(ringFlash.size*ringMaxScale)/2} cy={(ringFlash.size*ringMaxScale)/2} r={ringFlash.size/2} fill="none" stroke={ringStroke(ringFlash.color)} strokeWidth={0.9} vectorEffect="non-scaling-stroke" style={{filter:`drop-shadow(0 0 1.2px ${ringStroke(ringFlash.color)})`}}>
-                <animate attributeName="r" from={ringFlash.size/2} to={(ringFlash.size/2)*ringMaxScale} dur={`${ringDurationMs}ms`} fill="freeze" calcMode="spline" keyTimes="0;0.18;0.72;1" keySplines="0.12 0 0.3 0.6;0.3 0.4 0.5 1;0.42 0.8 0.6 1" />
-                <animate attributeName="opacity" values="0;0.90;0.80;0.40;0.10;0" keyTimes="0;0.05;0.42;0.74;0.92;1" dur={`${ringDurationMs}ms`} fill="freeze" calcMode="spline" keySplines="0 0 0.1 1;0.1 0 0.3 1;0.2 0 0.5 1;0.3 0 0.6 1;0.4 0 0.8 1" />
-                <animate attributeName="stroke-width" values="0.9;0.72;0.38;0.12" keyTimes="0;0.28;0.68;1" dur={`${ringDurationMs}ms`} fill="freeze" calcMode="spline" keySplines="0.2 0 0.5 1;0.3 0 0.6 1;0.4 0 0.8 1" />
+                <animate attributeName="r" from={ringFlash.size/2} to={(ringFlash.size/2)*ringMaxScale} dur={`${outerRingDurationMs}ms`} fill="freeze" calcMode="spline" keyTimes="0;0.2;0.76;1" keySplines="0.14 0 0.28 0.56;0.26 0.34 0.48 1;0.4 0.76 0.58 1" />
+                <animate attributeName="opacity" values="0;0.90;0.80;0.40;0.10;0" keyTimes="0;0.06;0.46;0.78;0.94;1" dur={`${outerRingDurationMs}ms`} fill="freeze" calcMode="spline" keySplines="0 0 0.1 1;0.1 0 0.3 1;0.2 0 0.5 1;0.3 0 0.6 1;0.4 0 0.8 1" />
+                <animate attributeName="stroke-width" values="0.9;0.72;0.38;0.12" keyTimes="0;0.32;0.74;1" dur={`${outerRingDurationMs}ms`} fill="freeze" calcMode="spline" keySplines="0.2 0 0.5 1;0.3 0 0.6 1;0.4 0 0.8 1" />
               </circle>
-              <circle cx={(ringFlash.size*ringMaxScale)/2} cy={(ringFlash.size*ringMaxScale)/2} r={ringFlash.size/2} fill="none" stroke={ringStroke(ringFlash.color)} strokeWidth={0.5} vectorEffect="non-scaling-stroke" opacity={0} style={{filter:`drop-shadow(0 0 0.6px ${ringStroke(ringFlash.color)})`}}>
+              <circle cx={(ringFlash.size*ringMaxScale)/2} cy={(ringFlash.size*ringMaxScale)/2} r={ringFlash.size/2} fill="none" stroke={ringStroke(ringFlash.color)} strokeWidth={0.52} vectorEffect="non-scaling-stroke" opacity={0} style={{filter:`drop-shadow(0 0 0.8px ${ringStroke(ringFlash.color)})`}}>
                 <animate attributeName="r" from={ringFlash.size/2} to={(ringFlash.size/2)*(ringMaxScale*0.8)} begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keyTimes="0;0.22;1" keySplines="0.52 0 0.66 0.80;0.35 0.5 0.55 1" />
-                <animate attributeName="opacity" values="0;0.78;0.52;0.22;0" keyTimes="0;0.04;0.34;0.72;1" begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keySplines="0 0 0.1 1;0.15 0 0.4 1;0.3 0 0.65 1;0.4 0 0.85 1" />
-                <animate attributeName="stroke-width" values="0.5;0.32;0.10" keyTimes="0;0.45;1" begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keySplines="0.25 0 0.55 1;0.4 0 0.75 1" />
+                <animate attributeName="opacity" values="0;1;0.64;0.32;0.12;0" keyTimes="0;0.04;0.32;0.64;0.86;1" begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keySplines="0 0 0.1 1;0.18 0 0.42 1;0.28 0 0.6 1;0.36 0 0.72 1;0.45 0 0.85 1" />
+                <animate attributeName="stroke-opacity" values="0;1;0.68;0.36;0.14;0" keyTimes="0;0.06;0.34;0.66;0.87;1" begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keySplines="0 0 0.1 1;0.18 0 0.42 1;0.28 0 0.6 1;0.36 0 0.72 1;0.45 0 0.85 1" />
+                <animate attributeName="stroke-width" values="0.52;0.36;0.16" keyTimes="0;0.45;1" begin={`${ringDurationMs*0.22}ms`} dur={`${ringDurationMs*0.88}ms`} fill="freeze" calcMode="spline" keySplines="0.25 0 0.55 1;0.4 0 0.75 1" />
               </circle>
             </svg>
           </div>

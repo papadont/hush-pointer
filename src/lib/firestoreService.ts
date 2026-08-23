@@ -54,6 +54,7 @@ export type ScreenshotRecord = {
   gameAreaPixels?: number;
   scheme: "default" | "moss" | "warm" | "dusk" | "dark";
   mode: "left" | "right" | "random";
+  difficulty?: "standard" | "depth";
   targetSize: number;
   glowMode: boolean;
   pointerGuide: boolean;

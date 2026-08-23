@@ -29,7 +29,7 @@
  * @changelog ヘッダコメントを追加
  * ============================================================
  */
-import React,{useEffect,useMemo,useRef,useState}from"react";
+import React,{useCallback,useEffect,useMemo,useRef,useState}from"react";
 import { ensureAnonymousUser } from "./lib/firebaseConfig";
 import {
   deleteScreenshotById,
@@ -43,11 +43,23 @@ import {
 import { elementToPngDataUrl } from "./lib/screenshot";
 // HUSH·POINTER v1.5b : trackball-oriented reaction training (frozen, compact build)
 
-type Color="blue"|"red";type ColorScheme="default"|"warm"|"moss"|"dusk"|"dark";type Mode="left"|"right"|"random";type BeepMode="all"|"miss"|"off";type ReactionSample={t:number;color:Color};
+type Color="blue"|"red";type ColorScheme="default"|"warm"|"moss"|"dusk"|"dark";type Mode="left"|"right"|"random";type BeepMode="all"|"miss"|"off";type Difficulty="standard"|"depth";type ReactionSample={t:number;color:Color};
+type Target={id:number;x:number;y:number;originDx:number;originDy:number;passDx:number;passDy:number;passMode:"exit"|"size";depthDurationMs:number;color:Color};
+type HitBurst={id:number;x:number;y:number;size:number;color:Color};
 
 const nextBeep=(m:BeepMode):BeepMode=>m==="all"?"miss":m==="miss"?"off":"all";
 
 const DURATION=60,BEEP={HIT:480,MISS:140,FINISH:700}; // game length (sec) & beep frequencies
+const DEPTH_START_SCALE=.42;
+const DEPTH_SIZE_PASS_SCALE=8;
+const DEPTH_PASS_EXIT_SCALE=5.8;
+const DEPTH_TRAVEL_PX_PER_SEC=175;
+const DEPTH_SIZE_GROWTH_MS=6800;
+const HIT_BURST_DURATION_MS=520;
+const DEPTH_ORIGIN_SPREAD_X=.74;
+const DEPTH_ORIGIN_SPREAD_Y=.64;
+const DEPTH_MAX_TRAVEL_X_RATIO=.14;
+const DEPTH_MAX_TRAVEL_Y_RATIO=.10;
 const SCREENSHOT_PAGE_SIZE=24;
 const SCREENSHOT_CACHE_TTL_MS=5*60*1000;
 const SCREENSHOT_CACHE_PREFIX="hp:screenshot-cache:";
@@ -121,6 +133,7 @@ const screenshotMetadataEntries=(item:ScreenshotRecord)=>{
     gameAreaPixels:item.gameAreaPixels,
     scheme:item.scheme,
     mode:item.mode,
+    difficulty:item.difficulty,
     targetSize:item.targetSize,
     glowMode:item.glowMode,
     pointerGuide:item.pointerGuide,
@@ -161,20 +174,26 @@ function calcHitScore(targetSizePx:number,reactionSec:number|null,areaWidthPx:nu
   const af=Math.min(1.35,Math.max(.8,Math.sqrt(area/baselineArea)));
   return Math.max(1,Math.floor(base*rf*af));
 }
+function calcDepthMultiplier(scale:number){
+  const progress=Math.min(1,Math.max(0,(scale-DEPTH_START_SCALE)/(DEPTH_SIZE_PASS_SCALE-DEPTH_START_SCALE)));
+  return 1+4*Math.pow(1-progress,1.35);
+}
 
 export default function App(){
   const[scheme,setScheme]=useState<ColorScheme>("default"),{BLUE,RED,HIST_BLUE,HIST_RED}=SCHEMES[scheme],theme=THEMES[scheme];
   const [schemeTip, setSchemeTip] = useState<"" | ColorScheme | "nord">("");
-  const areaRef=useRef<HTMLDivElement|null>(null),targetSpawnedAt=useRef(0),ignoredFirstReaction=useRef(false),hoveringTargetRef=useRef(false),prevRingActiveRef=useRef(false),ringFlashSeqRef=useRef(0);
+  const areaRef=useRef<HTMLDivElement|null>(null),targetVisualRef=useRef<HTMLDivElement|null>(null),targetSpawnedAt=useRef(0),targetSeqRef=useRef(0),resolvedTargetIdRef=useRef<number|null>(null),ignoredFirstReaction=useRef(false),hoveringTargetRef=useRef(false),prevRingActiveRef=useRef(false),ringFlashSeqRef=useRef(0);
   const[running,setRunning]=useState(false),[finished,setFinished]=useState(false),[timeLeft,setTimeLeft]=useState(DURATION);
   const[score,setScore]=useState(0),scoreRef=useRef(0),[hitCount,setHitCount]=useState(0),hitRef=useRef(0),[miss,setMiss]=useState(0),missRef=useRef(0);
   const[streak,setStreak]=useState(0),[comboFlash,setComboFlash]=useState(false),[message,setMessage]=useState("");
   const[perfectBonus,setPerfectBonus]=useState(0),[showPerfectBonus,setShowPerfectBonus]=useState(false),perfectBonusRef=useRef(0);
-  const[targetSize,setTargetSize]=useState(14),[target,setTarget]=useState<{x:number;y:number;color:Color}|null>(null);
+  const[targetSize,setTargetSize]=useState(14),[target,setTarget]=useState<Target|null>(null);
   const[mode,setMode]=useState<Mode>("random"),[beepMode,setBeepMode]=useState<BeepMode>("miss");
+  const[difficulty,setDifficulty]=useState<Difficulty>("standard");
   const[reactionSamples,setReactionSamples]=useState<ReactionSample[]>([]);
   const[glowMode,setGlowMode]=useState(false),[hoveringTarget,setHoveringTarget]=useState(false);
   const[ringFlash,setRingFlash]=useState<{id:number;x:number;y:number;size:number;color:Color}|null>(null);
+  const[hitBurst,setHitBurst]=useState<HitBurst|null>(null);
   const[pointerGuide,setPointerGuide]=useState(false);
 
   // --- bonus mode : HUSH·PAINTER ---
@@ -205,6 +224,7 @@ export default function App(){
   const[screenshotLoadingMore,setScreenshotLoadingMore]=useState(false);
   const[screenshotHasMore,setScreenshotHasMore]=useState(false);
   const[screenshotError,setScreenshotError]=useState("");
+  const messageTimerRef=useRef<number|undefined>(undefined);
   const[showScreenshotList,setShowScreenshotList]=useState(false);
   const[selectedScreenshot,setSelectedScreenshot]=useState<ScreenshotRecord|null>(null);
   const[hoveredScreenshotId,setHoveredScreenshotId]=useState("");
@@ -239,7 +259,7 @@ export default function App(){
   const screenshotKindForMode=extraMode?"painter":"finish";
   const visibleScreenshotList=useMemo(
     ()=>{
-      const filtered=screenshotList.filter(item=>item.kind===screenshotKindForMode);
+      const filtered=screenshotList.filter(item=>item.kind===screenshotKindForMode&&(item.kind!=="finish"||(item.difficulty??"standard")===difficulty));
       if(screenshotKindForMode!=="finish")return filtered;
       return [...filtered].sort((a,b)=>{
         const scoreDiff=(b.score??Number.NEGATIVE_INFINITY)-(a.score??Number.NEGATIVE_INFINITY);
@@ -250,7 +270,7 @@ export default function App(){
         return a.id.localeCompare(b.id);
       });
     },
-    [screenshotList,screenshotKindForMode]
+    [difficulty,screenshotList,screenshotKindForMode]
   );
   const selectedScreenshotIndex=useMemo(
     ()=>selectedScreenshot?visibleScreenshotList.findIndex(s=>s.id===selectedScreenshot.id):-1,
@@ -276,6 +296,8 @@ export default function App(){
   const ringDurationMs=750;
   const outerRingDurationMs=840;
   const ringMaxScale=9.5;
+  const hitBurstCanvasSize=hitBurst?Math.max(52,hitBurst.size*7):0;
+  const hitBurstCenter=hitBurstCanvasSize/2;
 
   const readScreenshotCache=(uid:string,kind:ScreenshotKind):CachedScreenshotPayload|null=>{
     try{
@@ -304,7 +326,7 @@ export default function App(){
     }
   };
 
-  const flashMessage=(txt:string)=>{setMessage(txt);window.clearTimeout((flashMessage as any)._t);(flashMessage as any)._t=window.setTimeout(()=>setMessage(""),2800)};
+  const flashMessage=useCallback((txt:string)=>{setMessage(txt);if(messageTimerRef.current!=null)window.clearTimeout(messageTimerRef.current);messageTimerRef.current=window.setTimeout(()=>setMessage(""),2800)},[]);
   const playBeep=(freq:number,kind:"hit"|"miss"|"finish")=>{if(beepMode==="off")return;if(beepMode==="miss"&&kind!=="miss")return;const AudioCtx=window.AudioContext||(window as any).webkitAudioContext;if(!AudioCtx)return;const ctx=new AudioCtx(),osc=ctx.createOscillator(),g=ctx.createGain();osc.type="square";osc.frequency.value=freq;const now=ctx.currentTime;g.gain.setValueAtTime(.0001,now);g.gain.linearRampToValueAtTime(.18,now+.002);osc.connect(g);g.connect(ctx.destination);osc.start();const dur=kind==="finish"?.18:.04;g.gain.linearRampToValueAtTime(.0001,now+dur);osc.stop(now+dur+.002);osc.onended=()=>{try{ctx.close()}catch{}}};
   const clearModalNavHideTimer=()=>{if(modalNavHideTimerRef.current!=null){window.clearTimeout(modalNavHideTimerRef.current);modalNavHideTimerRef.current=undefined}};
   const hideModalNav=()=>{clearModalNavHideTimer();setModalNavVisible(false);setModalNavEdge("")};
@@ -556,16 +578,16 @@ export default function App(){
     if(!selectedScreenshot)hideModalNav();
   },[selectedScreenshot]);
   useEffect(()=>{
-    if(selectedScreenshot&&selectedScreenshot.kind!==screenshotKindForMode){
+    if(selectedScreenshot&&(selectedScreenshot.kind!==screenshotKindForMode||(selectedScreenshot.kind==="finish"&&(selectedScreenshot.difficulty??"standard")!==difficulty))){
       setSelectedScreenshot(null);
     }
-  },[selectedScreenshot,screenshotKindForMode]);
+  },[difficulty,selectedScreenshot,screenshotKindForMode]);
   useEffect(()=>{
     setSelectedScreenshotIds(ids=>ids.filter(id=>screenshotList.some(item=>item.id===id)));
   },[screenshotList]);
   useEffect(()=>{
     setSelectedScreenshotIds([]);
-  },[screenshotKindForMode]);
+  },[difficulty,screenshotKindForMode]);
   useEffect(()=>{
     if(lastSavedPainterStrokes==null)return;
     if(paintStrokes!==lastSavedPainterStrokes){
@@ -576,10 +598,46 @@ export default function App(){
 
   const ringStroke=(c:Color)=>{const base=c==="blue"?BLUE:RED;const a=scheme==="dark"?1.0:0.92;return rgba(base,a)};
   const glowBg=(c:Color)=>{const base=c==="blue"?BLUE:RED;const k=scheme==="dark"?1.45:1.0;return `radial-gradient(circle,${rgba(base,.48*k)} 0%,${rgba(base,.30*k)} 42%,${rgba(base,.16*k)} 72%,${rgba(base,0)} 100%)`};
-  const spawnTarget=()=>{setHoveringTarget(false);hoveringTargetRef.current=false;const area=areaRef.current;if(!area)return;const rect=area.getBoundingClientRect(),w=rect.width,h=rect.height,size=Math.max(2,Math.min(targetSize,Math.min(w,h))),x=Math.random()*Math.max(0,w-size),y=Math.random()*Math.max(0,h-size);
-    const color:Color=mode==="left"?"blue":mode==="right"?"red":Math.random()<.5?"blue":"red";targetSpawnedAt.current=performance.now();setTarget({x,y,color})};
+  const getCurrentTargetGeometry=()=>{
+    const area=areaRef.current,targetEl=targetVisualRef.current;
+    if(!area||!targetEl)return null;
+    const areaRect=area.getBoundingClientRect(),targetRect=targetEl.getBoundingClientRect();
+    return{x:targetRect.left-areaRect.left,y:targetRect.top-areaRect.top,size:Math.max(targetRect.width,targetRect.height)};
+  };
+  const spawnTarget=useCallback(()=>{
+    setHoveringTarget(false);hoveringTargetRef.current=false;
+    const area=areaRef.current;if(!area)return;
+    const rect=area.getBoundingClientRect(),w=rect.width,h=rect.height,size=Math.max(2,Math.min(targetSize,Math.min(w,h)));
+    const depthMarginX=Math.min(Math.max(0,(w-size)/2),Math.max(4,(size*1.4-size)/2));
+    const depthMarginY=Math.min(Math.max(0,(h-size)/2),Math.max(4,(size*1.4-size)/2));
+    const depthXMin=depthMarginX,depthXMax=Math.max(depthXMin,w-size-depthMarginX),depthYMin=depthMarginY,depthYMax=Math.max(depthYMin,h-size-depthMarginY);
+    const depthStartX=depthXMin+(depthXMax-depthXMin)*((1-DEPTH_ORIGIN_SPREAD_X)/2+Math.random()*DEPTH_ORIGIN_SPREAD_X);
+    const depthStartY=depthYMin+(depthYMax-depthYMin)*((1-DEPTH_ORIGIN_SPREAD_Y)/2+Math.random()*DEPTH_ORIGIN_SPREAD_Y);
+    const maxTravelX=Math.max(size*1.8,(depthXMax-depthXMin)*DEPTH_MAX_TRAVEL_X_RATIO),maxTravelY=Math.max(size*1.8,(depthYMax-depthYMin)*DEPTH_MAX_TRAVEL_Y_RATIO);
+    const x=difficulty==="depth"?Math.max(depthXMin,Math.min(depthXMax,depthStartX+(Math.random()-.5)*maxTravelX*2)):Math.random()*Math.max(0,w-size);
+    const y=difficulty==="depth"?Math.max(depthYMin,Math.min(depthYMax,depthStartY+(Math.random()-.5)*maxTravelY*2)):Math.random()*Math.max(0,h-size);
+    let passDx=0,passDy=0,passMode:"exit"|"size"="size",depthDurationMs=DEPTH_SIZE_GROWTH_MS;
+    if(difficulty==="depth"){
+      let vectorX=x-depthStartX,vectorY=y-depthStartY;
+      if(Math.hypot(vectorX,vectorY)<1){vectorX=x+size/2-w/2;vectorY=y+size/2-h/2}
+      if(Math.hypot(vectorX,vectorY)<1){vectorX=1;vectorY=.28}
+      const vectorLength=Math.hypot(vectorX,vectorY),unitX=vectorX/vectorLength,unitY=vectorY/vectorLength;
+      passMode=Math.random()<.68?"exit":"size";
+      if(passMode==="exit"){
+        const centerX=x+size/2,centerY=y+size/2;
+        const edgeX=unitX>0?(w-centerX)/unitX:unitX<0?-centerX/unitX:Infinity;
+        const edgeY=unitY>0?(h-centerY)/unitY:unitY<0?-centerY/unitY:Infinity;
+        const exitDistance=Math.max(0,Math.min(edgeX,edgeY))+size*DEPTH_PASS_EXIT_SCALE;
+        passDx=unitX*exitDistance;passDy=unitY*exitDistance;
+        depthDurationMs=Math.round(Math.max(2600,Math.min(9000,exitDistance/DEPTH_TRAVEL_PX_PER_SEC*1000)));
+      }
+    }
+    const color:Color=mode==="left"?"blue":mode==="right"?"red":Math.random()<.5?"blue":"red";
+    targetSeqRef.current+=1;targetSpawnedAt.current=performance.now();
+    setTarget({id:targetSeqRef.current,x,y,originDx:difficulty==="depth"?depthStartX-x:0,originDy:difficulty==="depth"?depthStartY-y:0,passDx,passDy,passMode,depthDurationMs,color});
+  },[difficulty,mode,targetSize]);
 
-  const startGame=()=>{setShowScreenshotList(false);setComboFlash(false);setHitCount(0);hitRef.current=0;setScore(0);scoreRef.current=0;setMiss(0);missRef.current=0;setStreak(0);setTimeLeft(DURATION);setRunning(true);setFinished(false);setMessage("");setPerfectBonus(0);perfectBonusRef.current=0;setShowPerfectBonus(false);setReactionSamples([]);setFinishScreenshotSaved(false);setLastSavedFinishScheme(null);ignoredFirstReaction.current=false;spawnTarget()};
+  const startGame=()=>{setShowScreenshotList(false);setComboFlash(false);setHitBurst(null);setHitCount(0);hitRef.current=0;setScore(0);scoreRef.current=0;setMiss(0);missRef.current=0;setStreak(0);setTimeLeft(DURATION);setRunning(true);setFinished(false);setMessage("");setPerfectBonus(0);perfectBonusRef.current=0;setShowPerfectBonus(false);setReactionSamples([]);setFinishScreenshotSaved(false);setLastSavedFinishScheme(null);ignoredFirstReaction.current=false;spawnTarget()};
 
   const endGame=()=>{const missNow=missRef.current,hitNow=hitRef.current,scoreNow=scoreRef.current;
     let finalScore=scoreNow;
@@ -590,25 +648,34 @@ export default function App(){
 
   useEffect(()=>{if(!running)return;const startedAt=performance.now();let raf=0;const tick=()=>{const elapsed=(performance.now()-startedAt)/1000,remain=Math.max(0,DURATION-elapsed);setTimeLeft(remain);if(remain<=0)return endGame();raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);return()=>cancelAnimationFrame(raf)},[running]);
 
+  const passDepthTarget=(id:number)=>{
+    if(!running||difficulty!=="depth"||!target||target.id!==id||resolvedTargetIdRef.current===id)return;
+    resolvedTargetIdRef.current=id;
+    setMiss(m=>{const next=m+1;missRef.current=next;return next});
+    setStreak(0);flashMessage("passed · no score");spawnTarget();
+  };
+
   useEffect(()=>{const el=areaRef.current;if(!el)return;
     const update=(clientX:number,clientY:number)=>{if(!(running&&target)){if(hoveringTargetRef.current){hoveringTargetRef.current=false;setHoveringTarget(false)}return}
-      const rect=el.getBoundingClientRect(),px=clientX-rect.left,py=clientY-rect.top,cx=target.x+targetSize/2,cy=target.y+targetSize/2,r=targetSize/2;
-      const dx=px-cx,dy=py-cy,inside=dx*dx+dy*dy<=r*r;
+      const targetRect=targetVisualRef.current?.getBoundingClientRect();if(!targetRect)return;
+      const cx=targetRect.left+targetRect.width/2,cy=targetRect.top+targetRect.height/2,r=Math.min(targetRect.width,targetRect.height)/2;
+      const dx=clientX-cx,dy=clientY-cy,inside=dx*dx+dy*dy<=r*r;
       if(inside!==hoveringTargetRef.current){hoveringTargetRef.current=inside;setHoveringTarget(inside)}};
     const onMove=(ev:PointerEvent)=>update(ev.clientX,ev.clientY);
     const onLeave=()=>{if(!hoveringTargetRef.current)return;hoveringTargetRef.current=false;setHoveringTarget(false)};
     el.addEventListener("pointermove",onMove,{passive:true,capture:true});el.addEventListener("pointerleave",onLeave,{capture:true});
     return()=>{el.removeEventListener("pointermove",onMove,{capture:true}as any);el.removeEventListener("pointerleave",onLeave,{capture:true}as any)}
-  },[running,target,targetSize]);
+  },[running,target]);
 
   useEffect(()=>{
-    const ringActive=hoveringTarget&&!glowMode;
+    const ringActive=hoveringTarget&&!glowMode&&difficulty==="standard";
     if(ringActive&&!prevRingActiveRef.current&&target){
+      const geometry=getCurrentTargetGeometry();if(!geometry)return;
       ringFlashSeqRef.current+=1;
-      setRingFlash({id:ringFlashSeqRef.current,x:target.x,y:target.y,size:targetSize,color:target.color});
+      setRingFlash({id:ringFlashSeqRef.current,x:geometry.x,y:geometry.y,size:geometry.size,color:target.color});
     }
     prevRingActiveRef.current=ringActive;
-  },[hoveringTarget,glowMode,target,targetSize]);
+  },[difficulty,hoveringTarget,glowMode,target]);
   useEffect(()=>{
     if(!ringFlash)return;
     const timer=window.setTimeout(()=>{
@@ -616,6 +683,11 @@ export default function App(){
     },Math.ceil(Math.max(ringDurationMs,outerRingDurationMs)*1.12));
     return()=>window.clearTimeout(timer);
   },[ringFlash,ringDurationMs,outerRingDurationMs]);
+  useEffect(()=>{
+    if(!hitBurst)return;
+    const timer=window.setTimeout(()=>setHitBurst(current=>current?.id===hitBurst.id?null:current),HIT_BURST_DURATION_MS);
+    return()=>window.clearTimeout(timer);
+  },[hitBurst]);
 
   const clearPainter=()=>{
     const c=painterCanvasRef.current,ctx=painterCtxRef.current;
@@ -633,14 +705,18 @@ export default function App(){
   const onTargetMouseDown=(e:React.MouseEvent)=>{e.stopPropagation();if(!running||!target)return;
     const isBlueClick=e.button===0,isRedClick=e.button===2||(e.button===0&&e.ctrlKey),correctClick=target.color==="blue"?isBlueClick:isRedClick;
     if(!correctClick){setMiss(m=>{const next=m+1;missRef.current=next;return next});setStreak(0);flashMessage(target.color==="blue"?"blue = left":"red = right");playBeep(BEEP.MISS,"miss");return}
+    if(resolvedTargetIdRef.current===target.id)return;resolvedTargetIdRef.current=target.id;
+    const hitGeometry=getCurrentTargetGeometry();if(hitGeometry)setHitBurst({id:target.id,x:hitGeometry.x,y:hitGeometry.y,size:Math.max(18,hitGeometry.size*1.65),color:target.color});
     if(target.color==="red")e.preventDefault();setComboFlash(true);window.setTimeout(()=>setComboFlash(false),120);
     setHitCount(h=>{const next=h+1;hitRef.current=next;return next});
     const rect=areaRef.current?.getBoundingClientRect(),areaW=rect?.width??1000,areaH=rect?.height??700;
     let rt:number|null=null;if(targetSpawnedAt.current>0){const v=(performance.now()-targetSpawnedAt.current)/1000;if(Number.isFinite(v)&&v>=0)rt=v}
     const isWarmup=!ignoredFirstReaction.current,nextStreak=streak+1,comboMul=1+Math.min(.5,(nextStreak-1)*.02);
-    const basePoints=calcHitScore(targetSize,isWarmup?null:rt,areaW,areaH),points=Math.max(1,Math.floor(basePoints*comboMul));
+    const depthScale=difficulty==="depth"?(hitGeometry?.size??targetSize)/targetSize:1;
+    const depthMul=difficulty==="depth"?calcDepthMultiplier(depthScale):1;
+    const basePoints=calcHitScore(targetSize,isWarmup?null:rt,areaW,areaH),points=Math.max(1,Math.floor(basePoints*comboMul*depthMul));
     setScore(s=>{const next=s+points;scoreRef.current=next;return next});setStreak(nextStreak);
-    if(rt!=null){if(isWarmup){ignoredFirstReaction.current=true;flashMessage("warm up")}else setReactionSamples(r=>[...r,{t:rt as number,color:target.color}])}
+    if(rt!=null){if(isWarmup){ignoredFirstReaction.current=true;flashMessage(difficulty==="depth"?`warm up · ×${depthMul.toFixed(1)}`:"warm up")}else{setReactionSamples(r=>[...r,{t:rt as number,color:target.color}]);if(difficulty==="depth")flashMessage(`${depthScale<1.5?"far":depthScale<3.5?"mid":"near"} · ×${depthMul.toFixed(1)} · +${points}`)}}
     spawnTarget();playBeep(BEEP.HIT,"hit")};
 
   const finishTitleColor=`color-mix(in srgb, ${BLUE} 85%, black)`;
@@ -943,6 +1019,7 @@ export default function App(){
         setRunning(false);
         setFinished(false);
         setTarget(null);
+        setHitBurst(null);
         setMessage("");
 
         // reset painter refs so the first stroke after switching always binds to the new canvas
@@ -967,6 +1044,14 @@ export default function App(){
     });
   };
 
+  const toggleDifficulty=()=>{
+    if(extraMode||running)return;
+    const next:Difficulty=difficulty==="standard"?"depth":"standard";
+    setDifficulty(next);setFinished(false);setTarget(null);setHitBurst(null);setRingFlash(null);
+    setFinishScreenshotSaved(false);setLastSavedFinishScheme(null);
+    flashMessage(next==="depth"?"depth rush · farther hits score higher":"standard mode");
+  };
+
   const saveFinishCardScreenshot=async()=>{
     const card=finishCardRef.current;
     if(!card||savingFinish)return;
@@ -987,6 +1072,7 @@ export default function App(){
         perfectBonus,
         scheme,
         mode,
+        difficulty,
         targetSize,
         glowMode,
         pointerGuide
@@ -1118,6 +1204,12 @@ export default function App(){
           91% { opacity: calc(var(--glowBase) * 0.46); transform: scale(2.85) translate(-4px, -2px) rotate(-6deg); filter: blur(1.9px); }
           100% { opacity: calc(var(--glowBase) * 0.55); transform: scale(3.10) translate(0px, 0px) rotate(0deg); filter: blur(2.0px); }
         }
+        @keyframes hpDepthApproach {
+          0% { transform:translate3d(var(--depth-origin-x),var(--depth-origin-y),0) scale(${DEPTH_START_SCALE}); opacity:0.34; }
+          16% { opacity:0.66; }
+          62% { opacity:0.94; }
+          100% { transform:translate3d(var(--depth-end-x),var(--depth-end-y),0) scale(var(--depth-end-scale)); opacity:1; }
+        }
       `}</style>
 
       <header className="w-full max-w-5xl mb-0 relative" style={{paddingLeft:0,height:26,minHeight:26,display:"flex",alignItems:"center",overflow:"hidden"}}>
@@ -1137,7 +1229,16 @@ export default function App(){
             HUSH·{extraMode ? "PAINTER" : "POINTER"}
           </span>
           <span aria-hidden="true" style={{opacity:0.45,padding:"0 6px",fontWeight:500,letterSpacing:"0.12em"}}>·</span>
-          <span style={{fontWeight:400,letterSpacing:"0.32em",opacity:0.62,fontFamily:"Manrope, Inter, system-ui, sans-serif",textTransform:"lowercase"}}>{extraMode?"quiet strokes":"quiet precision"}</span>
+          <button
+            type="button"
+            onClick={toggleDifficulty}
+            disabled={extraMode||running}
+            aria-pressed={!extraMode&&difficulty==="depth"}
+            title={extraMode?"available in pointer mode":running?"available after this run":"toggle depth rush"}
+            style={{fontWeight:400,letterSpacing:"0.32em",opacity:extraMode||running?0.42:0.62,fontFamily:"Manrope, Inter, system-ui, sans-serif",textTransform:"lowercase",background:"none",border:0,padding:0,color:"inherit",cursor:extraMode||running?"default":"pointer",minWidth:148,textAlign:"left",lineHeight:1}}
+          >
+            {extraMode?"quiet strokes":difficulty==="depth"?"depth rush":"quiet precision"}
+          </button>
         </h1>
         <div className="absolute select-none" style={{right:68,top:4,display:"flex",alignItems:"center",gap:54,marginRight:10}}>
           <div style={{display:"flex",gap:8}}>{(["default","moss","warm","dusk","dark"]as ColorScheme[]).map(s=>(
@@ -1203,7 +1304,7 @@ export default function App(){
       </div>
 
       <div className="w-full max-w-5xl hp-msg rounded-xl px-2 py-1 min-h-[1.5rem] mb-0.5 flex items-center justify-between gap-2" style={{transform:"scale(0.86)",transformOrigin:"top center"}}>
-        <span className="truncate">{message||(extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / top-right eraser icon or Shift to toggle` : (schemeTip?`scheme : ${schemeTip}`:""))}</span>
+        <span className="truncate">{message||(extraMode ? `double click: clear / drag: ${eraserMode?"eraser":"brush"} / top-right eraser icon or Shift to toggle` : (schemeTip?`scheme : ${schemeTip}`:difficulty==="depth"?"depth rush · farther = higher score · passed target = no score":""))}</span>
         <button
           ref={screenshotToggleRef}
           className="px-2 py-0.5 rounded hp-input text-[11px] shrink-0 disabled:opacity-60"
@@ -1375,6 +1476,17 @@ export default function App(){
             }}
           />
         )}
+        {!extraMode&&running&&difficulty==="depth"&&(
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              zIndex:2,
+              background:`radial-gradient(circle at 50% 50%, ${rgba(BLUE,isNord ? .13 : .08)} 0, transparent 2px, transparent 34%, ${rgba(BLUE,isNord ? .055 : .035)} 72%, transparent 100%)`,
+              boxShadow:`inset 0 0 90px ${isNord?"rgba(8,12,18,0.24)":"rgba(71,85,105,0.07)"}`
+            }}
+          />
+        )}
         {extraMode&&(
           <canvas ref={painterCanvasRef} className="absolute inset-0" style={{zIndex:2,cursor:"crosshair"}} onPointerDown={onPainterPointerDown} onPointerMove={onPainterPointerMove} onPointerUp={endPainterStroke} onPointerCancel={endPainterStroke} onPointerLeave={endPainterStroke} onContextMenu={e=>e.preventDefault()} />
         )}
@@ -1386,7 +1498,7 @@ export default function App(){
               <div ref={finishCardRef} className="text-center rounded-3xl px-5 py-4 hp-finish">
                 <div className="mb-2">
                   <div className="h-2" />
-                  <div className="text-[14px] font-semibold tracking-[0.18em] opacity-70 mb-1">HUSH·POINTER</div>
+                  <div className="text-[14px] font-semibold tracking-[0.18em] opacity-70 mb-1">HUSH·POINTER{difficulty==="depth"?" · DEPTH RUSH":""}</div>
                   <div className="text-2xl font-bold tracking-tight mb-0" style={{color:finishTitleColor}}>finish!</div>
 
                   {perfectBonus>0&&(
@@ -1449,12 +1561,52 @@ export default function App(){
           </div>
         )}
 
+        {hitBurst&&(
+          <div className="pointer-events-none absolute" style={{left:hitBurst.x+hitBurst.size/2-hitBurstCanvasSize/2,top:hitBurst.y+hitBurst.size/2-hitBurstCanvasSize/2,width:hitBurstCanvasSize,height:hitBurstCanvasSize,zIndex:26,contain:"paint"}}>
+            <svg width="100%" height="100%" viewBox={`0 0 ${hitBurstCanvasSize} ${hitBurstCanvasSize}`} style={{overflow:"visible"}}>
+              <circle cx={hitBurstCenter} cy={hitBurstCenter} r={Math.max(2,hitBurst.size*.42)} fill="none" stroke={hitBurst.color==="blue"?BLUE:RED} strokeWidth={Math.max(1,hitBurst.size*.11)}>
+                <animate attributeName="r" from={Math.max(2,hitBurst.size*.42)} to={hitBurst.size*2.1} dur={`${HIT_BURST_DURATION_MS}ms`} fill="freeze" />
+                <animate attributeName="opacity" values="0.95;0.62;0" keyTimes="0;0.35;1" dur={`${HIT_BURST_DURATION_MS}ms`} fill="freeze" />
+              </circle>
+              <circle cx={hitBurstCenter} cy={hitBurstCenter} r={Math.max(1.5,hitBurst.size*.22)} fill={hitBurst.color==="blue"?BLUE:RED}>
+                <animate attributeName="r" from={Math.max(1.5,hitBurst.size*.22)} to={hitBurst.size*.9} dur="190ms" fill="freeze" />
+                <animate attributeName="opacity" values="1;0.8;0" keyTimes="0;0.32;1" dur="250ms" fill="freeze" />
+              </circle>
+              {Array.from({length:8}).map((_,index)=>{
+                const angle=(Math.PI*2*index)/8-Math.PI/2;
+                const distance=hitBurst.size*(1.55+(index%2)*.42);
+                const toX=hitBurstCenter+Math.cos(angle)*distance,toY=hitBurstCenter+Math.sin(angle)*distance;
+                return(
+                  <g key={index}>
+                    <line x1={hitBurstCenter} y1={hitBurstCenter} x2={hitBurstCenter+Math.cos(angle)*hitBurst.size*.36} y2={hitBurstCenter+Math.sin(angle)*hitBurst.size*.36} stroke={hitBurst.color==="blue"?BLUE:RED} strokeWidth={Math.max(1.4,hitBurst.size*.13)} strokeLinecap="round">
+                      <animate attributeName="x2" from={hitBurstCenter} to={toX} dur={`${HIT_BURST_DURATION_MS}ms`} fill="freeze" />
+                      <animate attributeName="y2" from={hitBurstCenter} to={toY} dur={`${HIT_BURST_DURATION_MS}ms`} fill="freeze" />
+                      <animate attributeName="opacity" values="1;0.72;0" keyTimes="0;0.5;1" dur={`${HIT_BURST_DURATION_MS}ms`} fill="freeze" />
+                    </line>
+                    <circle cx={hitBurstCenter} cy={hitBurstCenter} r={Math.max(1.3,hitBurst.size*.1)} fill={hitBurst.color==="blue"?BLUE:RED}>
+                      <animate attributeName="cx" from={hitBurstCenter} to={toX} dur={`${HIT_BURST_DURATION_MS}ms`} fill="freeze" />
+                      <animate attributeName="cy" from={hitBurstCenter} to={toY} dur={`${HIT_BURST_DURATION_MS}ms`} fill="freeze" />
+                      <animate attributeName="r" values={`${Math.max(1.3,hitBurst.size*.1)};${Math.max(.6,hitBurst.size*.055)};0`} keyTimes="0;0.55;1" dur={`${HIT_BURST_DURATION_MS}ms`} fill="freeze" />
+                      <animate attributeName="opacity" values="1;0.86;0" keyTimes="0;0.42;1" dur={`${HIT_BURST_DURATION_MS}ms`} fill="freeze" />
+                    </circle>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+        )}
+
         {running&&target&&(
-          <div className="absolute" style={{left:target.x,top:target.y,width:targetSize,height:targetSize}}>
+          <div
+            key={target.id}
+            className="absolute"
+            onAnimationEnd={e=>{if(e.currentTarget===e.target&&difficulty==="depth")passDepthTarget(target.id)}}
+            style={{...({left:target.x,top:target.y,width:targetSize,height:targetSize,zIndex:10,transformOrigin:"50% 50%",willChange:difficulty==="depth"?"transform, opacity":undefined,animation:difficulty==="depth"?`hpDepthApproach ${target.depthDurationMs}ms cubic-bezier(0.42, 0, 1, 1) forwards`:undefined,"--depth-origin-x":`${target.originDx}px`,"--depth-origin-y":`${target.originDy}px`,"--depth-end-x":`${target.passDx}px`,"--depth-end-y":`${target.passDy}px`,"--depth-end-scale":target.passMode==="exit"?DEPTH_PASS_EXIT_SCALE:DEPTH_SIZE_PASS_SCALE}as React.CSSProperties)}}
+          >
             {glowMode&&(
               <div className="absolute inset-0 rounded-full pointer-events-none" style={{zIndex:5,background:glowBg(target.color),opacity:1,transformOrigin:"50% 50%",...glowVars,animation:"glowAppear 480ms cubic-bezier(0.22, 1, 0.36, 1) forwards, glowShimmer 11500ms ease-in-out 480ms infinite"}} />
             )}
-            <div className="absolute inset-0 rounded-full" onMouseDown={onTargetMouseDown} style={{willChange:"transform, opacity, filter",zIndex:10,cursor:"crosshair",backgroundColor:target.color==="blue"?BLUE:RED,transform:(glowMode||comboFlash)?`scale(${(comboFlash?1.25:1)*(glowMode?(hoveringTarget?1.0:0.16):1)})`:undefined,opacity:glowMode?(hoveringTarget?0.96:0.82):1,filter:glowMode?(hoveringTarget?"blur(0.8px)":"blur(0px)"):"none",transition:glowMode?(hoveringTarget?"transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease-out, filter 300ms ease":"transform 500ms cubic-bezier(0.22, 1, 0.36, 1), opacity 350ms ease-in, filter 400ms ease"):undefined}} />
+            <div ref={targetVisualRef} className="absolute inset-0 rounded-full" onMouseDown={onTargetMouseDown} style={{willChange:"transform, opacity, filter",zIndex:10,cursor:"crosshair",backgroundColor:target.color==="blue"?BLUE:RED,transform:(glowMode||comboFlash)?`scale(${(comboFlash?1.25:1)*(glowMode?(hoveringTarget?1.0:(difficulty==="depth"?.72:.16)):1)})`:undefined,opacity:glowMode?(hoveringTarget?0.96:0.82):1,filter:glowMode?(hoveringTarget?"blur(0.8px)":"blur(0px)"):"none",transition:glowMode?(hoveringTarget?"transform 380ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease-out, filter 300ms ease":"transform 500ms cubic-bezier(0.22, 1, 0.36, 1), opacity 350ms ease-in, filter 400ms ease"):undefined}} />
           </div>
         )}
       </div>

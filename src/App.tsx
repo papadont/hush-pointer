@@ -702,12 +702,12 @@ export default function App(){
   const onAreaDoubleClick=()=>{if(extraMode){clearPainter();return;}if(!running)startGame()};
   const onAreaMouseDown=(e:React.MouseEvent)=>{if(extraMode)return;if(!running)return;if(e.button===2)e.preventDefault();setMiss(m=>{const next=m+1;missRef.current=next;return next});setStreak(0);flashMessage("miss");playBeep(BEEP.MISS,"miss")};
 
-  const onTargetMouseDown=(e:React.MouseEvent)=>{e.stopPropagation();if(!running||!target)return;
+  const onTargetMouseDown=(e:React.MouseEvent)=>{e.preventDefault();e.stopPropagation();if(!running||!target)return;
     const isBlueClick=e.button===0,isRedClick=e.button===2||(e.button===0&&e.ctrlKey),correctClick=target.color==="blue"?isBlueClick:isRedClick;
     if(!correctClick){setMiss(m=>{const next=m+1;missRef.current=next;return next});setStreak(0);flashMessage(target.color==="blue"?"blue = left":"red = right");playBeep(BEEP.MISS,"miss");return}
     if(resolvedTargetIdRef.current===target.id)return;resolvedTargetIdRef.current=target.id;
-    const hitGeometry=getCurrentTargetGeometry();if(hitGeometry)setHitBurst({id:target.id,x:hitGeometry.x,y:hitGeometry.y,size:Math.max(18,hitGeometry.size*1.65),color:target.color});
-    if(target.color==="red")e.preventDefault();setComboFlash(true);window.setTimeout(()=>setComboFlash(false),120);
+    const hitGeometry=getCurrentTargetGeometry();if(difficulty==="depth"&&hitGeometry)setHitBurst({id:target.id,x:hitGeometry.x,y:hitGeometry.y,size:Math.max(18,hitGeometry.size*1.65),color:target.color});
+    setComboFlash(true);window.setTimeout(()=>setComboFlash(false),120);
     setHitCount(h=>{const next=h+1;hitRef.current=next;return next});
     const rect=areaRef.current?.getBoundingClientRect(),areaW=rect?.width??1000,areaH=rect?.height??700;
     let rt:number|null=null;if(targetSpawnedAt.current>0){const v=(performance.now()-targetSpawnedAt.current)/1000;if(Number.isFinite(v)&&v>=0)rt=v}
@@ -1473,17 +1473,6 @@ export default function App(){
               ].join(","),
               backgroundSize:"40px 40px, 40px 40px, 20px 20px, 20px 20px",
               backgroundPosition:"0 0, 0 0, 0 0, 0 0"
-            }}
-          />
-        )}
-        {!extraMode&&running&&difficulty==="depth"&&(
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              zIndex:2,
-              background:`radial-gradient(circle at 50% 50%, ${rgba(BLUE,isNord ? .13 : .08)} 0, transparent 2px, transparent 34%, ${rgba(BLUE,isNord ? .055 : .035)} 72%, transparent 100%)`,
-              boxShadow:`inset 0 0 90px ${isNord?"rgba(8,12,18,0.24)":"rgba(71,85,105,0.07)"}`
             }}
           />
         )}

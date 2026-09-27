@@ -1,30 +1,24 @@
 #!/bin/bash
+set -euo pipefail
 
-PROJECT_DIR="/Users/hideki/Documents/develop/hush-pointer"
-PORT=5173
+PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_DIR"
 
-echo "🔍 $PORT番port調査中..."
-
-# port 5173のプロセス特定＆終了
-PIDS=$(lsof -ti:$PORT 2>/dev/null)
-if [ -n "$PIDS" ]; then
-    echo "👹 $PORT使ってるPID: $PIDS → 終了するよ"
-    kill $PIDS
-    sleep 1
-    # 念のため確認
-    if lsof -ti:$PORT >/dev/null 2>&1; then
-        echo "⚠️ まだ生きてる！強制終了"
-        kill -9 $PIDS
-    fi
-    echo "✅ port $PORT解放完了"
-else
-    echo "✅ $PORT空いてるよ"
+# Prefer the project's supported Node version without changing the global default.
+if command -v brew >/dev/null 2>&1; then
+  NODE24_BIN="$(brew --prefix)/opt/node@24/bin"
+  if [ -x "$NODE24_BIN/node" ]; then
+    export PATH="$NODE24_BIN:$PATH"
+  fi
 fi
 
-# ディレクトリ移動＆バックグラウンド起動
-cd "$PROJECT_DIR" || { echo "❌ $PROJECT_DIRないよ"; exit 1; }
-echo "🚀 hush-pointer起動（バックグラウンド）"
-npm run dev &
+if [ ! -f .env.local ]; then
+  echo "Firebase設定がありません。READMEのローカル開発手順に従って.env.localを復元してください。" >&2
+  exit 1
+fi
+if [ ! -d node_modules ]; then
+  npm ci
+fi
 
-echo "🎉 完了！ http://localhost:5173 で確認してね"
-echo "停止→ pkill -f 'npm.*dev' または Ctrl+C"
+echo "http://localhost:${PORT:-5173}/hush-pointer/ (停止: Ctrl+C)"
+exec npm run dev -- --host 127.0.0.1 --port "${PORT:-5173}" --strictPort

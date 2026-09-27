@@ -135,13 +135,37 @@
 
 ## ローカル開発
 
-開発環境のセットアップと起動手順は次のとおりです。[file:1]
+Node.js 24 を使用します（`.nvmrc`）。Mac の初回セットアップ:
 
 ```bash
-npm install
-cp .env.example .env.local
-npm run dev
+brew install node@24
+export PATH="$(brew --prefix)/opt/node@24/bin:$PATH"
+npm ci
+# GitHub CLIでこのリポジトリへアクセスできる場合:
+npm run setup:env
+./rundev.sh
 ```
+
+起動先: http://localhost:5173/hush-pointer/ 。停止は `Ctrl+C`。
+`rundev.sh` は配置ディレクトリを自動検出し、Homebrew の Node 24 を優先します。
+ポート使用中は既存プロセスを終了せずエラーにします。変更する場合は `PORT=5174 ./rundev.sh`。
+
+`setup:env` は GitHub Repository Variables から Firebase の公開設定だけを `.env.local`
+へ復元します（既存ファイルは上書きしません）。GitHub CLI がない場合は `brew install gh`、
+未認証なら `gh auth login` が必要です。手動設定する場合は `.env.example` を `.env.local`
+にコピーし、Firebase Console の Web アプリ設定を入力してください。雛形のままでは起動できません。
+`.env.local` は Git 管理対象外です。
+
+- 通常のアプリ利用に Firebase CLI のログインやサービスアカウントは不要です。
+- ルールを変更・デプロイする場合のみ `npm run firebase:login` が必要です。
+- OpenAI API の呼び出しは現在実装されておらず、OpenAI API キーは不要です。
+- App Check がローカル環境を拒否する場合は、下記の開発用 debug token を Firebase Console
+  に登録し、`.env.development.local` に保存してください。本番ビルドでは debug token を使いません。
+  本番の Enforcement を無効化する必要はありません。
+- 保存履歴はブラウザの匿名 UID に紐づきます。新しい Mac・ブラウザでは UID が変わるため、
+  旧環境の履歴が必要な場合は後述の UID Migration を使用します。
+
+確認コマンド: `npm run build`、`npm run lint`。
 
 ## Firebase Security Setup (App Check + Firestore Rules)
 
@@ -182,8 +206,8 @@ VITE_FIREBASE_APP_ID=your_web_app_id
 
 VITE_FIREBASE_APPCHECK_SITE_KEY=your_recaptcha_v3_site_key
 
-# 任意: ローカル開発で debug token を使う場合
-VITE_FIREBASE_APPCHECK_DEBUG_TOKEN=true
+# 開発時のみ: .env.development.local に別途保存
+# VITE_FIREBASE_APPCHECK_DEBUG_TOKEN=Firebaseに登録済みのdebug_token
 ```
 
 補足:

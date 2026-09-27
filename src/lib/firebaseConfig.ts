@@ -61,7 +61,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY?.trim();
-const appCheckDebugToken = import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN?.trim();
+const appCheckDebugToken = import.meta.env.DEV
+  ? import.meta.env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN?.trim()
+  : undefined;
 
 if (appCheckDebugToken) {
   (self as typeof self & { FIREBASE_APPCHECK_DEBUG_TOKEN?: string | true }).FIREBASE_APPCHECK_DEBUG_TOKEN =

@@ -11,7 +11,8 @@
     "firebase:login": "firebase login",
     "deploy:rules": "firebase deploy --only firestore:rules",
     "deploy:rules:project": "firebase deploy --only firestore:rules --project hush-pointer",
-    "migrate:uid": "node scripts/migrate-screenshot-uid.mjs"
+    "migrate:uid": "node scripts/migrate-screenshot-uid.mjs",
+    "setup:env": "node scripts/restore-env.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
@@ -39,5 +40,8 @@
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
     "firebase-admin": "^13.6.0"
+  },
+  "engines": {
+    "node": ">=24 <25"
   }
 }
